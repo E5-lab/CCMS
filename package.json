@@ -1,0 +1,15 @@
+{
+  "name": "ccms",
+  "version": "0.1.0",
+  "description": "CCMS - 信用卡账单管理 (Credit Card Management System) demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

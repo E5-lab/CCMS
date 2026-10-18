@@ -1,0 +1,6 @@
+name = "ccms"
+main = "src/worker.js"
+compatibility_date = "2024-11-01"
+
+# 静态资源目录：单页应用（SPA）直接由 Cloudflare 边缘托管
+assets = { directory = "public", not_found_handling = "single-page-application" }
