@@ -22,7 +22,7 @@ const Store = {
   async load() {
     if (this.mode === 'remote') {
       const r = await fetch('/api/state', { headers: { 'x-ccms-token': this.token } });
-      if (!r.ok) throw new Error('同步拉取失败 (' + r.status + ')');
+      if (!r.ok) throw new Error(await apiError(r, '同步拉取失败'));
       const d = await r.json();
       return {
         cards: (d.cards || []).map(c => ({ ...c, closed: !!c.closed })),
@@ -43,7 +43,7 @@ const Store = {
           deleteBills: this.pendingDelete.bills,
         }),
       });
-      if (!r.ok) throw new Error('同步失败 (' + r.status + ')');
+      if (!r.ok) throw new Error(await apiError(r, '同步失败'));
       const d = await r.json();
       this.pendingDelete = { cards: [], bills: [] };
       return {
@@ -58,6 +58,15 @@ const Store = {
 };
 
 /* ------------------------------- 工具 ------------------------------- */
+// 读取 API 错误响应中的友好提示（如 D1 未绑定）
+async function apiError(r, fallback) {
+  try {
+    const d = await r.json();
+    if (d && d.message) return d.message;
+    if (d && d.error) return fallback + '：' + d.error;
+  } catch (e) { /* ignore */ }
+  return fallback + ' (' + r.status + ')';
+}
 function load(key, fallback) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
   catch (e) { return fallback; }

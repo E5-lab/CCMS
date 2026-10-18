@@ -6,9 +6,15 @@ compatibility_date = "2024-11-01"
 assets = { directory = "public", not_found_handling = "single-page-application" }
 
 # Cloudflare D1 数据库（多设备同步）
-[[d1_databases]]
-binding = "DB"
-database_name = "ccms"
-# 执行 `npx wrangler d1 create ccms` 后，将输出的 id 填入下方并去掉注释
-database_id = "REPLACE_WITH_YOUR_D1_ID"
-migrations_dir = "migrations"
+# 说明：不在此处配置 D1 绑定，部署时无需任何凭证/ID。
+# 启用云端同步的步骤（Cloudflare 后台手动操作）：
+#   1. 后台 → Storage & Databases → D1 → Create database，名称 ccms
+#   2. 在该数据库的 Console 里执行 migrations/0001_init.sql 的内容建表
+#   3. 后台 → Workers & Pages → ccms → Settings → Bindings → Add binding：
+#      类型选 D1 Database，Variable name 填 DB，选择 ccms 数据库，保存
+#   4. 重新部署一次（或直接生效，视后台提示），前端「设置 → 云端同步」即可使用
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "ccms"
+# database_id = "你的D1_ID"
+# migrations_dir = "migrations"

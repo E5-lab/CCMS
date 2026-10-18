@@ -27,7 +27,7 @@
 │   └── worker.js      # Cloudflare Worker 入口（静态托管 + /api 同步接口）
 ├── migrations/
 │   └── 0001_init.sql  # D1 建表脚本
-├── wrangler.toml      # Cloudflare Workers 配置（含 D1 绑定）
+├── wrangler.toml      # Cloudflare Workers 配置（D1 绑定在后台手动添加）
 └── package.json
 ```
 
@@ -40,24 +40,19 @@ npm run dev        # 启动 wrangler dev，默认 http://localhost:8787
 
 也可直接用浏览器打开 `public/index.html` 体验（默认本地存储模式）。
 
-## 部署到 Cloudflare Workers（含 D1 云端同步）
+## 部署到 Cloudflare Workers（无需本地凭证）
 
-```bash
-npm install
+支持通过 **Workers Builds（Git 集成）** 或 `npm run deploy` 直接部署，`wrangler.toml` 中**不配置 D1 绑定**，部署开箱即用（默认本地存储模式）。之后如需多设备同步，在 Cloudflare 后台手动绑定 D1：
 
-# 1) 创建 D1 数据库，并把输出的 id 填入 wrangler.toml 的 database_id
-npx wrangler d1 create ccms
+1. **部署**：连接 GitHub 仓库自动构建，或本地 `npm run deploy`
+2. **创建 D1**：后台 → Storage & Databases → D1 SQL Engine → Create，数据库名 `ccms`
+3. **建表**：进入该数据库的 **Console**，粘贴执行 `migrations/0001_init.sql` 的全部内容
+4. **绑定**：后台 → Workers & Pages → `ccms` → Settings → Bindings → Add binding：
+   - Type 选 **D1 Database**，Variable name 填 **`DB`**，D1 database 选 `ccms`，保存
+5. 绑定后访问站点，「设置 → 云端同步」填同一同步密钥即可多设备共享
 
-# 2) 初始化数据库表（生产环境）
-npx wrangler d1 migrations apply ccms --remote
-
-# 3) 部署
-npm run deploy
-```
-
-部署后访问分配的 `*.workers.dev` 域名，进入「设置」开启云端同步并设置一个同步密钥即可多设备共享。
-
-> 本地开发如需使用 D1：`npx wrangler d1 migrations apply ccms --local` 后 `npm run dev`（默认本地数据库）。
+> 未绑定 D1 时调用同步接口会返回 503 `D1_NOT_CONFIGURED`，前端会提示「云端存储未启用」，不影响本地模式使用。
+> 本地开发如需使用 D1：取消 `wrangler.toml` 中 `[[d1_databases]]` 注释并填入 `database_id`，然后 `npx wrangler d1 migrations apply ccms --local`。
 
 ## 数据模型
 

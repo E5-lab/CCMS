@@ -32,6 +32,17 @@ async function handleApi(request, env, url) {
   const db = env.DB;
   const p = url.pathname;
 
+  // D1 未绑定（尚未在 Cloudflare 后台手动添加绑定）时给出明确提示
+  if (!db) {
+    return json(
+      {
+        error: 'D1_NOT_CONFIGURED',
+        message: '云端存储未启用：请在 Cloudflare 后台为该 Worker 绑定 D1 数据库（变量名 DB），并在数据库 Console 中执行 migrations/0001_init.sql 建表。',
+      },
+      503
+    );
+  }
+
   if (p === '/api/state' && request.method === 'GET') {
     const c = await db.prepare('SELECT * FROM cards WHERE owner=?').bind(owner).all();
     const b = await db.prepare('SELECT * FROM bills WHERE owner=?').bind(owner).all();
