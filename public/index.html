@@ -16,12 +16,14 @@
       <nav class="nav">
         <button class="nav-item active" data-view="dashboard">概览</button>
         <button class="nav-item" data-view="cards">信用卡</button>
+        <button class="nav-item" data-view="closed">已注销</button>
         <button class="nav-item" data-view="monthly">月度账单</button>
         <button class="nav-item" data-view="annual">年度汇总</button>
         <button class="nav-item" data-view="history">历年汇总</button>
+        <button class="nav-item" data-view="settings">设置</button>
       </nav>
       <div class="sidebar-foot">
-        <div>demo · 数据存于本地</div>
+        <div id="syncState" class="sync-state">本地存储</div>
         <button id="seedBtn" class="link-btn">导入示例数据</button>
         <button id="resetBtn" class="link-btn danger">清空数据</button>
       </div>

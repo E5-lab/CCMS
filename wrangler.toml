@@ -2,5 +2,13 @@ name = "ccms"
 main = "src/worker.js"
 compatibility_date = "2024-11-01"
 
-# 静态资源目录：单页应用（SPA）直接由 Cloudflare 边缘托管
+# 静态资源（单页应用）由 Cloudflare 边缘托管
 assets = { directory = "public", not_found_handling = "single-page-application" }
+
+# Cloudflare D1 数据库（多设备同步）
+[[d1_databases]]
+binding = "DB"
+database_name = "ccms"
+# 执行 `npx wrangler d1 create ccms` 后，将输出的 id 填入下方并去掉注释
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+migrations_dir = "migrations"
