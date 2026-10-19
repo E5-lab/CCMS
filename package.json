@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "preview": "wrangler dev"
+    "preview": "wrangler dev",
+    "setup:d1": "bash scripts/setup-d1.sh"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

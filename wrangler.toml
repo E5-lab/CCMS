@@ -11,18 +11,15 @@ assets = { directory = "public", not_found_handling = "single-page-application" 
 crons = ["0 9 * * *"]
 
 # Cloudflare D1 数据库（多设备同步 / 账号 / 推送）
-# 说明：不在此处配置 D1 绑定，部署时无需任何凭证/ID。
-# 启用云端同步的步骤（Cloudflare 后台手动操作）：
-#   1. 后台 → Storage & Databases → D1 → Create database，名称 ccms
-#   2. 在该数据库的 Console 里依次执行 migrations/0001_init.sql、0002_auth.sql、0003_sync_features.sql 建表
-#   3. 后台 → Workers & Pages → ccms → Settings → Bindings → Add binding：
-#      类型选 D1 Database，Variable name 填 DB，选择 ccms 数据库，保存
-#   4. 重新部署一次（或直接生效，视后台提示），前端「设置 → 云端账户」即可使用
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "ccms"
-# database_id = "你的D1_ID"
-# migrations_dir = "migrations"
+# 绑定声明在此，部署时自动带上，无需每次重新部署后手动绑定。
+# database_id 用环境变量替换，避免把账号相关 ID 写进仓库（.env 已被 .gitignore 忽略）。
+# 首次初始化：npm run setup:d1 （自动创建数据库 + 应用 migrations/ 下全部迁移 + 部署）
+[[d1_databases]]
+binding = "DB"
+database_name = "ccms"
+database_id = "${CCMS_D1_ID}"
+
+# 仅本地使用、不启用云端时：把上面 [[d1_databases]] 整段注释掉即可（或用 Pages 部署，Pages 会忽略此绑定）。
 
 # Web Push（还款提醒）环境变量：在后台 Workers → ccms → Settings → Variables & Secrets 中添加
 #   VAPID_PUBLIC_KEY  : 用 `npx web-push generate-vapid-keys` 生成的 public key（base64url）

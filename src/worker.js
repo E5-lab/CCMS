@@ -36,6 +36,7 @@ function norm(rows) {
 
 const enc = new TextEncoder();
 
+// 密码哈希：标准 PBKDF2（10 万次迭代，SHA-256，随机盐）。服务端不留存明文。
 async function derive(password, salt) {
   const km = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode(salt), iterations: 100000, hash: 'SHA-256' }, km, 256);
@@ -51,6 +52,30 @@ function b64url(buf) {
 function b64urlDecode(s) {
   s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
   return new Uint8Array(Buffer.from(s, 'base64'));
+}
+
+/* ------------------------------- 数据库自初始化 ------------------------------- */
+// 合并 0001/0002/0003 的全部表结构，幂等建表。
+// 这样部署后无需手动在 D1 控制台执行任何 SQL，首次访问自动建好。
+// 仅在绑定了 D1（env.DB 存在）时调用。
+let dbInitPromise = null;
+async function initDb(db) {
+  if (dbInitPromise) return dbInitPromise;
+  dbInitPromise = (async () => {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pass_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at INTEGER NOT NULL)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at INTEGER NOT NULL)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, bank TEXT, last4 TEXT, billingDay INTEGER, dueDay INTEGER, gracePeriod INTEGER, \`limit\` REAL, color TEXT, image TEXT, closed INTEGER NOT NULL DEFAULT 0, closedAt TEXT, points INTEGER, annual_fee INTEGER, annual_fee_date TEXT, deleted INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS bills (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', cardId TEXT NOT NULL, period TEXT NOT NULL, statement REAL, paid REAL, status TEXT, dueDate TEXT, note TEXT, deleted INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_cards_owner ON cards(owner)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_bills_owner ON bills(owner)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_bills_card ON bills(cardId)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)`),
+    ]);
+  })();
+  return dbInitPromise;
 }
 
 async function getSessionUser(db, token) {
@@ -73,7 +98,7 @@ async function readBody(request) {
 async function requireUser(request, env) {
   const auth = request.headers.get('authorization') || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!env.DB) return { error: json({ error: 'D1_NOT_CONFIGURED', message: '云端存储未启用：请在 Cloudflare 后台为该 Worker 绑定 D1 数据库（变量名 DB），并在数据库 Console 依次执行 migrations 下的 0001/0002/0003 SQL 建表。' }, 503) };
+  if (!env.DB) return { error: json({ error: 'D1_NOT_CONFIGURED', message: '云端存储未启用：请在 Cloudflare 后台为该 Worker 绑定 D1 数据库（变量名 DB）。绑定并重新部署后，首次访问会自动建表，无需手动执行任何 SQL。' }, 503) };
   const u = await getSessionUser(env.DB, token);
   if (!u) return { error: json({ error: 'UNAUTHORIZED', message: '未登录或会话已过期，请重新登录。' }, 401) };
   return { user: u };
@@ -171,6 +196,7 @@ async function sendWebPush(subscription, payload, vapidPub, vapidPriv, subject) 
 
 async function sendReminders(env) {
   if (!env.DB) return;
+  await initDb(env.DB); // 确保表存在后再查询
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
     console.warn('VAPID 未配置，跳过 Web Push 提醒。');
     return;
@@ -203,9 +229,10 @@ async function sendReminders(env) {
 async function handleApi(request, env, url) {
   const p = url.pathname;
   const db = env.DB;
+  if (db) await initDb(db); // 首次访问自动建表，无需手动执行 SQL
 
   if (p === '/api/register' && request.method === 'POST') {
-    if (!db) return json({ error: 'D1_NOT_CONFIGURED', message: '云端存储未启用：请先在 Cloudflare 后台绑定 D1 并建表。' }, 503);
+    if (!db) return json({ error: 'D1_NOT_CONFIGURED', message: '云端存储未启用：请在 Cloudflare 后台为该 Worker 绑定 D1 数据库（变量名 DB）。绑定并重新部署后，首次访问会自动建表，无需手动执行任何 SQL。' }, 503);
     const b = await readBody(request);
     const email = String(b.email || '').trim().toLowerCase();
     const password = String(b.password || '');
@@ -218,7 +245,7 @@ async function handleApi(request, env, url) {
     return json({ token: await createSession(db, id), email });
   }
   if (p === '/api/login' && request.method === 'POST') {
-    if (!db) return json({ error: 'D1_NOT_CONFIGURED', message: '云端存储未启用：请先在 Cloudflare 后台绑定 D1 并建表。' }, 503);
+    if (!db) return json({ error: 'D1_NOT_CONFIGURED', message: '云端存储未启用：请在 Cloudflare 后台为该 Worker 绑定 D1 数据库（变量名 DB）。绑定并重新部署后，首次访问会自动建表，无需手动执行任何 SQL。' }, 503);
     const b = await readBody(request);
     const email = String(b.email || '').trim().toLowerCase();
     const password = String(b.password || '');
