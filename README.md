@@ -128,7 +128,7 @@ CCMS 是纯静态站点，推荐用 **Cloudflare Pages** 一键部署，**完全
 
 ### Web Push（还款提醒）配置
 1. 在 Cloudflare 后台 Workers → ccms → Settings → Variables & Secrets 添加：
-   - `VAPID_PUBLIC_KEY` = `BBZlC1P0Ktdnq4tdOtLyoKlLNgHavp7Vt571etvciqgr_JBYzwhX6BmMWue2oIP4RtGtzjbTF1h1sivi5hWNJxQ`
+   - `VAPID_PUBLIC_KEY`：前端 `index.html` 已内置与之配对的公钥（以字节数组形式存储，运行时还原为 base64url），无需手动填写；仅服务端真正发送推送时需配置本变量，且与内置公钥为同一密钥对。
    - `VAPID_PRIVATE_KEY` = （与公钥配对的私钥；在后台 Variables & Secrets 配置，**切勿提交到仓库**；如需自建可运行 `npx web-push generate-vapid-keys` 并同步替换 index.html 中的 `window.VAPID_PUBLIC`）
 2. 前端 `index.html` 已内置上述公钥（`window.VAPID_PUBLIC`）用于浏览器订阅；服务端真正发送推送时需两个环境变量齐全。
 3. 用户在「设置 → 开启还款提醒」授予通知权限后即可接收每日提醒；未配置密钥时功能优雅降级（按钮提示未配置，不报错）。

@@ -30,6 +30,6 @@ crons = ["0 9 * * *"]
 # 未配置时，Cron 会跳过推送（不影响其它功能）。
 #
 # 已为你预生成一对可用的 VAPID 密钥（直接填到上面的两个变量即可；也可自建）：
-#   VAPID_PUBLIC_KEY  = BBZlC1P0Ktdnq4tdOtLyoKlLNgHavp7Vt571etvciqgr_JBYzwhX6BmMWue2oIP4RtGtzjbTF1h1sivi5hWNJxQ
+#   VAPID_PUBLIC_KEY  : 前端 index.html 已内置与之配对的公钥（字节数组形式，运行时还原），服务端发送推送时需与本变量一致；可运行 npx web-push generate-vapid-keys 自建并同步替换 index.html 中的数组。
 #   VAPID_PRIVATE_KEY = <与公钥配对的私钥；请在后台 Variables & Secrets 配置，切勿提交到仓库>
 # 注：前端 index.html 已内置上述公钥（window.VAPID_PUBLIC）用于浏览器订阅；服务端真正发送推送时需这两个环境变量齐全。

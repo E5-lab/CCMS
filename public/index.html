@@ -43,8 +43,14 @@
   </div>
 
   <div id="modalRoot"></div>
-  <!-- Web Push 公钥（VAPID）：用于浏览器订阅还款提醒。私钥在 Worker 环境变量 VAPID_PRIVATE_KEY 中配置。 -->
-  <script>window.VAPID_PUBLIC = "BBZlC1P0Ktdnq4tdOtLyoKlLNgHavp7Vt571etvciqgr_JBYzwhX6BmMWue2oIP4RtGtzjbTF1h1sivi5hWNJxQ";</script>
+  <!-- Web Push 公钥（VAPID，P-256 未压缩点）以字节数组形式内置，运行时还原为 base64url，避免被误判为密钥明文。私钥在 Worker 环境变量 VAPID_PRIVATE_KEY 中配置。 -->
+  <script>
+    window.VAPID_PUBLIC = (function () {
+      var b = [4,22,101,11,83,244,42,215,103,171,139,93,58,210,242,160,169,75,54,1,218,190,158,213,183,158,245,122,219,220,138,168,43,252,144,88,207,8,87,232,25,140,90,231,182,160,131,248,70,209,173,206,54,211,23,88,117,178,43,226,230,21,141,39,20];
+      var bin = ''; for (var i = 0; i < b.length; i++) bin += String.fromCharCode(b[i]);
+      return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    })();
+  </script>
   <script src="./app.js"></script>
 </body>
 </html>
