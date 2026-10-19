@@ -2,10 +2,10 @@
  * CCMS · 信用卡账单管理
  * 纯前端单页应用，支持两种存储模式：
  *   - 本地存储（localStorage）：开箱即用，适合单机/快速体验
- *   - 云端同步（Cloudflare D1）：通过 Worker /api 接口，多设备使用同一密钥同步
+ *   - 云端账户（Cloudflare D1）：注册/登录真实账号，多设备自动同步，按用户隔离
  * ========================================================================= */
 
-const LS = { cards: 'ccms.cards.v1', bills: 'ccms.bills.v1', mode: 'ccms.mode', token: 'ccms.token' };
+const LS = { cards: 'ccms.cards.v1', bills: 'ccms.bills.v1', mode: 'ccms.mode', email: 'ccms.email', session: 'ccms.session' };
 
 let cards = [];
 let bills = [];
@@ -15,13 +15,17 @@ const sel = { year: now.getFullYear(), month: now.getMonth() + 1 };
 
 /* --------------------------- 数据层（双模式） --------------------------- */
 const Store = {
-  mode: localStorage.getItem(LS.mode) || 'local',
-  token: localStorage.getItem(LS.token) || '',
+  mode: localStorage.getItem(LS.mode) || 'local',     // 'local' | 'cloud'
+  email: localStorage.getItem(LS.email) || '',
+  session: localStorage.getItem(LS.session) || '',
   pendingDelete: { cards: [], bills: [] },
 
+  // 仅当「云端账户」模式且已登录时才走远端接口；否则回退本地
+  get isCloud() { return this.mode === 'cloud' && !!this.session; },
+
   async load() {
-    if (this.mode === 'remote') {
-      const r = await fetch('/api/state', { headers: { 'x-ccms-token': this.token } });
+    if (this.isCloud) {
+      const r = await fetch('/api/state', { headers: { 'authorization': 'Bearer ' + this.session } });
       if (!r.ok) throw new Error(await apiError(r, '同步拉取失败'));
       const d = await r.json();
       return {
@@ -33,10 +37,10 @@ const Store = {
   },
 
   async save(cards, bills) {
-    if (this.mode === 'remote') {
+    if (this.isCloud) {
       const r = await fetch('/api/sync', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-ccms-token': this.token },
+        headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + this.session },
         body: JSON.stringify({
           cards, bills,
           deleteCards: this.pendingDelete.cards,
@@ -54,6 +58,33 @@ const Store = {
     localStorage.setItem(LS.cards, JSON.stringify(cards));
     localStorage.setItem(LS.bills, JSON.stringify(bills));
     return { cards, bills };
+  },
+
+  // 注册 / 登录 / 登出
+  async register(email, password) {
+    const r = await fetch('/api/register', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!r.ok) throw new Error(await apiError(r, '注册失败'));
+    return r.json();
+  },
+  async login(email, password) {
+    const r = await fetch('/api/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!r.ok) throw new Error(await apiError(r, '登录失败'));
+    return r.json();
+  },
+  async logout() {
+    if (this.session) {
+      try {
+        await fetch('/api/logout', { method: 'POST', headers: { 'authorization': 'Bearer ' + this.session } });
+      } catch (e) { /* ignore */ }
+    }
+    this.session = ''; this.email = '';
+    localStorage.removeItem(LS.session); localStorage.removeItem(LS.email);
   },
 };
 
@@ -362,12 +393,12 @@ function renderHistory() {
     <div class="panel"><div class="panel-title">历年对比</div>${barChart(totals, data.map(d => d.y + '年'), money)}</div>`;
 }
 
-/* ------------------------------- 设置（同步） ------------------------------- */
+/* ------------------------------- 设置（账户 / 同步） ------------------------------- */
 function updateSyncState() {
   const el = document.getElementById('syncState');
   if (!el) return;
-  if (Store.mode === 'remote') {
-    el.textContent = '云端同步 · ' + (Store.token ? Store.token.slice(0, 6) + '…' : '已启用');
+  if (Store.isCloud) {
+    el.textContent = '云端账户 · ' + (Store.email || '已登录');
     el.classList.add('remote');
   } else {
     el.textContent = '本地存储';
@@ -375,30 +406,45 @@ function updateSyncState() {
   }
 }
 function renderSettings() {
-  const remote = Store.mode === 'remote';
+  const cloud = Store.mode === 'cloud';
+  const loggedIn = Store.isCloud;
+  const accountBlock = loggedIn
+    ? `<div class="setting-row">
+         <div>
+           <div>已登录账户</div>
+           <div class="desc">${esc(Store.email)} · 多设备用同一账号自动同步</div>
+         </div>
+         <button class="btn" id="logoutBtn">退出登录</button>
+       </div>`
+    : `<div class="setting-row">
+         <div>
+           <div style="margin-bottom:8px">邮箱</div>
+           <input id="emailInput" placeholder="you@example.com" style="max-width:240px" value="${esc(Store.email)}">
+           <div style="margin:8px 0 4px">密码</div>
+           <input id="pwInput" type="password" placeholder="至少 6 位" style="max-width:240px">
+           <div class="desc" style="margin-top:6px">注册即用该邮箱+密码，无需验证码；登录后本地数据会自动上传到云端。</div>
+         </div>
+         <div style="display:flex;flex-direction:column;gap:10px">
+           <button class="btn primary" id="registerBtn">注册并启用云端</button>
+           <button class="btn" id="loginBtn">登录已有账号</button>
+         </div>
+       </div>`;
   return `<div class="panel">
-    <div class="panel-title">数据存储与多设备同步</div>
+    <div class="panel-title">数据存储与账户</div>
     <div class="setting-row">
       <div>
         <div>
-          <label class="switch"><input type="radio" name="mode" value="local" ${!remote ? 'checked' : ''}> 本地存储</label>
-          <label class="switch"><input type="radio" name="mode" value="remote" ${remote ? 'checked' : ''}> 云端同步（D1）</label>
+          <label class="switch"><input type="radio" name="mode" value="local" ${!cloud ? 'checked' : ''}> 本地存储</label>
+          <label class="switch"><input type="radio" name="mode" value="cloud" ${cloud ? 'checked' : ''}> 云端账户（D1）</label>
         </div>
-        <div class="desc">本地存储：数据仅存于当前浏览器。云端同步：通过 Cloudflare D1，多设备使用同一「同步密钥」即可共享数据。</div>
+        <div class="desc">本地存储：数据仅存于当前浏览器。云端账户：注册/登录后在 Cloudflare D1 多设备同步，按账号隔离。</div>
       </div>
     </div>
-    <div class="setting-row">
-      <div>
-        <div>同步密钥</div>
-        <div class="desc">自定一个密钥（如短语），多设备填相同密钥即同步。请勿使用密码等敏感信息。</div>
-      </div>
-      <input id="tokenInput" value="${esc(Store.token)}" placeholder="设置一个同步密钥" style="max-width:220px">
-    </div>
+    ${accountBlock}
     <div class="setting-row" style="border:none">
-      <div class="desc">切换到云端同步时，会先把当前本地数据上传；「立即拉取」从云端覆盖本地。</div>
+      <div class="desc">「立即拉取」从云端覆盖本地（云端模式且已登录时可用）。</div>
       <div style="display:flex;gap:10px">
-        <button class="btn" id="applySyncBtn">保存并同步</button>
-        <button class="btn primary" id="pullBtn">立即拉取</button>
+        <button class="btn" id="pullBtn">立即拉取</button>
       </div>
     </div>
   </div>
@@ -492,35 +538,55 @@ function bindViewEvents() {
     }
   });
 
-  // 设置页
-  const applySync = document.getElementById('applySyncBtn');
-  if (applySync) applySync.onclick = async () => {
-    const mode = document.querySelector('input[name=mode]:checked').value;
-    const token = document.getElementById('tokenInput').value.trim();
-    if (mode === 'remote' && !token) { alert('请填写同步密钥'); return; }
-    try {
-      if (mode === 'remote') {
-        Store.mode = 'remote'; Store.token = token;
-        localStorage.setItem(LS.mode, 'remote'); localStorage.setItem(LS.token, token);
-        Store.pendingDelete = { cards: [], bills: [] };
-        const s = await Store.save(cards, bills); // 把本地数据推上去
-        cards = s.cards; bills = s.bills;
-      } else {
-        localStorage.setItem(LS.cards, JSON.stringify(cards));
-        localStorage.setItem(LS.bills, JSON.stringify(bills));
-        Store.mode = 'local';
-        localStorage.setItem(LS.mode, 'local');
-      }
-      updateSyncState(); render();
-      alert(mode === 'remote' ? '已切换到云端同步，本地数据已上传。' : '已切换回本地存储。');
-    } catch (e) { alert('操作失败：' + e.message); }
-  };
+  // 设置页：账户 / 拉取（注册/登录/登出在下方单独绑定）
   const pullBtn = document.getElementById('pullBtn');
   if (pullBtn) pullBtn.onclick = async () => {
+    if (!Store.isCloud) { alert('请先在上方切换到「云端账户」并登录。'); return; }
     try {
       const s = await Store.load(); cards = s.cards; bills = s.bills; render();
       alert('已从云端拉取最新数据。');
     } catch (e) { alert('拉取失败：' + e.message); }
+  };
+
+  // 账户：注册 / 登录 / 登出
+  const registerBtn = document.getElementById('registerBtn');
+  if (registerBtn) registerBtn.onclick = async () => {
+    const email = document.getElementById('emailInput').value.trim();
+    const password = document.getElementById('pwInput').value;
+    if (!email || !password) { alert('请填写邮箱和密码'); return; }
+    try {
+      const d = await Store.register(email, password);
+      Store.session = d.token; Store.email = d.email;
+      localStorage.setItem(LS.session, d.token); localStorage.setItem(LS.email, d.email);
+      Store.mode = 'cloud'; localStorage.setItem(LS.mode, 'cloud');
+      const s = await Store.save(cards, bills); // 本地数据上传到云端
+      cards = s.cards; bills = s.bills;
+      updateSyncState(); render();
+      alert('注册成功，本地数据已上传到云端。');
+    } catch (e) { alert('注册失败：' + e.message); }
+  };
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) loginBtn.onclick = async () => {
+    const email = document.getElementById('emailInput').value.trim();
+    const password = document.getElementById('pwInput').value;
+    if (!email || !password) { alert('请填写邮箱和密码'); return; }
+    try {
+      const d = await Store.login(email, password);
+      Store.session = d.token; Store.email = d.email;
+      localStorage.setItem(LS.session, d.token); localStorage.setItem(LS.email, d.email);
+      Store.mode = 'cloud'; localStorage.setItem(LS.mode, 'cloud');
+      const s = await Store.load(); cards = s.cards; bills = s.bills; // 用云端数据
+      updateSyncState(); render();
+      alert('登录成功，已加载云端数据。');
+    } catch (e) { alert('登录失败：' + e.message); }
+  };
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) logoutBtn.onclick = async () => {
+    await Store.logout();
+    localStorage.setItem(LS.cards, JSON.stringify(cards));
+    localStorage.setItem(LS.bills, JSON.stringify(bills));
+    updateSyncState(); render();
+    alert('已退出登录，数据保留在本地。');
   };
 
   // 导出 / 导入备份（无需后端的跨设备方案）
@@ -794,7 +860,7 @@ function seedSample() {
 
 async function resetAll() {
   if (!confirm('将清空所有信用卡与账单数据（不可恢复），确定？')) return;
-  if (Store.mode === 'remote') {
+  if (Store.isCloud) {
     Store.pendingDelete.cards.push(...cards.map(c => c.id));
     Store.pendingDelete.bills.push(...bills.map(b => b.id));
   }
@@ -813,7 +879,7 @@ document.getElementById('resetBtn').onclick = resetAll;
     cards = s.cards; bills = s.bills;
   } catch (e) {
     console.error(e);
-    alert('数据加载失败：' + e.message + '\n（若已切换云端同步，请确认已部署 Worker 与 D1）');
+    alert('数据加载失败：' + e.message + '\n（若已启用云端账户，请确认已部署 Worker 与 D1）');
   }
   updateSyncState();
   render();
