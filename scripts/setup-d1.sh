@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# CCMS D1 一键初始化：创建数据库 → 部署（建表由 Worker 首次访问自动完成）
+# CCMS D1 一键初始化：创建数据库 → 写入绑定 → 部署（建表由 Worker 首次访问自动完成）
 #
-# 绑定写在 wrangler.toml 的 [[d1_databases]]，部署时自动带上。
-# 之后无论是 `npm run deploy` 还是 Cloudflare Git 自动部署，D1 绑定都会自动保留，
-# 不再需要每次重新部署后到后台手动绑定。
+# 绑定由本脚本写入本地 wrangler.toml（不入库）；之后 `npm run deploy` 自动带上。
+# 注意：若用 Cloudflare Git 自动构建部署，本地写入不会同步到云端，
+#       请在后台一次性手动绑定（见 README「云端同步」一节）。
 #
 # 前置条件：
 #   1. 已登录 Cloudflare：wrangler login （或设置 CLOUDFLARE_API_TOKEN 环境变量）
@@ -35,16 +35,31 @@ if [ -z "${CCMS_D1_ID:-}" ]; then
   mv .env.tmp .env
 fi
 
-# 2. 部署（绑定随 wrangler.toml 生效，自动带上 D1）
+# 2. 把 D1 绑定（真实 ID）追加进 wrangler.toml（幂等：已存在则跳过）
+#    注：wrangler 不支持 toml 里的 ${VAR} 替换，且仓库中默认不放绑定（避免 Git 构建部署报 10021），
+#    所以由本脚本在部署前写入真实 database_id。
+if grep -q '^\[\[d1_databases\]\]' wrangler.toml; then
+  echo "==> wrangler.toml 已含 D1 绑定，跳过写入"
+else
+  echo "==> 写入 D1 绑定到 wrangler.toml ..."
+  cat >> wrangler.toml <<TOML
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ccms"
+database_id = "$CCMS_D1_ID"
+TOML
+fi
+
+# 3. 部署（绑定随 wrangler.toml 生效，自动带上 D1）
 echo "==> 部署 Worker（D1 绑定自动带上）..."
 $WRANGLER deploy
 
 echo ""
 echo "✅ 完成！"
-echo "   • D1 绑定已写入 wrangler.toml，后续 'npm run deploy' / git push 自动保留，无需再手动绑定。"
+echo "   • D1 绑定已写入本地 wrangler.toml（不入库），后续 'npm run deploy' 自动保留。"
 echo "   • 应用首次访问时会自动建表（CREATE TABLE IF NOT EXISTS），无需手动执行任何 SQL。"
-echo "   • 若使用 Cloudflare Git 自动部署，请在后台 Workers→ccms→Settings→Variables 中添加变量："
-echo "       CCMS_D1_ID = $CCMS_D1_ID"
-echo "     （这样构建环境的 wrangler.toml 也能解析到数据库 ID）"
+echo "   • 若使用 Cloudflare Git 自动部署：本地写入的绑定不会同步到云端构建，"
+echo "     请在后台一次性手动绑定：Workers→ccms→Settings→Bindings→Add→D1 database"
+echo "       Variable name: DB    D1 database: ccms (ID: $CCMS_D1_ID)"
 echo "   • 本地开发：npm run dev"
-echo "   • 仅本地使用、不启用云端：把 wrangler.toml 中 [[d1_databases]] 整段注释掉即可。"

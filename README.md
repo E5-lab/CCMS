@@ -80,22 +80,29 @@ CCMS 是纯静态站点，推荐用 **Cloudflare Pages** 一键部署，**完全
 
 ### （可选进阶）多设备云端同步 —— Cloudflare D1 + 账号鉴权
 
-只需**一条命令**即可完成 D1 创建、绑定与部署（建表由应用首次访问自动完成，无需手动执行任何 SQL）：
+> 仓库中**不包含** D1 绑定配置：wrangler 不支持在 `wrangler.toml` 里做 `${VAR}` 环境变量替换，
+> 写占位符会导致 Cloudflare Git 构建部署直接失败（code 10021）。因此绑定在你自己的 Cloudflare
+> 后台完成**一次**即可，之后永久保留，后续每次 `git push` 自动部署都不会丢失。
+
+**启用云端同步（后台手动绑定，无需任何凭证/命令行）：**
+
+1. Cloudflare 后台 → **存储和数据 → D1** → **创建数据库**，名字填 `ccms`（记下页面显示的数据库 ID）。
+2. **Workers & Pages → ccms → 设置(Settings) → 绑定(Bindings) → 添加 → D1 数据库**：
+   - 变量名称（Variable name）：`DB`
+   - D1 数据库：选择 `ccms`
+3. 保存即可，**无需重新部署**。访问站点时 Worker 会在首次请求中用 `CREATE TABLE IF NOT EXISTS` 自动建全部表。
+
+部署完成后访问站点，「设置 → 云端账户」用**邮箱+密码注册/登录**即可，本地数据会自动上传，多设备用同一账号自动同步。
+
+**备选：本地 CLI 一键部署**（不依赖 Git 构建，需要 Cloudflare 凭证）：
 
 ```bash
 npm install
 npx wrangler login        # 一次性登录 Cloudflare（或设置 CLOUDFLARE_API_TOKEN）
-npm run setup:d1          # 创建 D1 → 部署（绑定随 wrangler.toml 自动带上）
+npm run setup:d1          # 创建 D1 → 把绑定写入本地 wrangler.toml → 部署
 ```
 
-`setup:d1` 会：
-1. 创建数据库 `ccms`，把数据库 ID 写入 `.env`（已被 `.gitignore` 忽略，不进仓库）；
-2. `wrangler deploy` 部署，**D1 绑定随 wrangler.toml 自动带上**，后续部署都会保留，无需再到后台手动绑定。
-
-部署完成后访问站点，「设置 → 云端账户」用**邮箱+密码注册/登录**即可，本地数据会自动上传，多设备用同一账号自动同步。
-
-> **关于建表**：Worker 在首次访问（注册/登录或任意同步请求）时，会用 `CREATE TABLE IF NOT EXISTS` **自动创建全部表**，因此你**不需要**在 D1 控制台手动粘贴任何 SQL。
-> 若仅想本地/本地开发用 D1：把 `wrangler.toml` 中 `[[d1_databases]]` 整段注释掉即可（用 Pages 部署时本绑定会被忽略）。
+> **关于建表**：Worker 在首次访问（注册/登录或任意同步请求）时，会用 `CREATE TABLE IF NOT EXISTS` **自动创建全部表**，因此你**不需要**在 D1 控制台手动粘贴任何 SQL（`schema.sql` 仅供参考）。
 
 ## 跨设备（最简单，无需云端）
 「设置 → 数据管理」可一键**导出备份 JSON**；换设备后在同页面**导入备份**即可恢复全部数据。这是最省事的跨设备方式，不依赖任何后端。导入会经过 `validateBackup` 校验与卡面 URL 白名单清洗。

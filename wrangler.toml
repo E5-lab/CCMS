@@ -11,15 +11,21 @@ assets = { directory = "public", not_found_handling = "single-page-application" 
 crons = ["0 9 * * *"]
 
 # Cloudflare D1 数据库（多设备同步 / 账号 / 推送）
-# 绑定声明在此，部署时自动带上，无需每次重新部署后手动绑定。
-# database_id 用环境变量替换，避免把账号相关 ID 写进仓库（.env 已被 .gitignore 忽略）。
-# 首次初始化：npm run setup:d1 （自动创建数据库 + 应用 migrations/ 下全部迁移 + 部署）
-[[d1_databases]]
-binding = "DB"
-database_name = "ccms"
-database_id = "${CCMS_D1_ID}"
-
-# 仅本地使用、不启用云端时：把上面 [[d1_databases]] 整段注释掉即可（或用 Pages 部署，Pages 会忽略此绑定）。
+# ★ 默认不启用：wrangler 不会在 toml 里做 ${VAR} 环境变量替换，写占位符会导致
+#   Cloudflare Git 构建部署失败（code 10021: must have a valid 'database_id'）。
+#   因此仓库中不放 D1 绑定 —— 部署成功后，在后台手动绑定一次即可（绑定永久保留，
+#   后续 Git 部署不会丢失，无需重复操作）：
+#
+#   Workers & Pages → ccms → 设置(Settings) → 绑定(Bindings) → 添加 → D1 数据库
+#     变量名称(Variable name)：DB
+#     D1 数据库：选择 ccms（没有就先到 存储和数据 → D1 → 创建数据库，名字 ccms）
+#   保存后无需重新部署，Worker 会在首次访问时自动建全部表，无需执行任何 SQL。
+#
+# 若用本地 CLI 部署（npm run setup:d1），脚本会自动把下面整段（填好真实 ID）追加到本文件末尾：
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "ccms"
+# database_id = "<你的数据库ID>"
 
 # Web Push（还款提醒）环境变量：在后台 Workers → ccms → Settings → Variables & Secrets 中添加
 #   VAPID_PUBLIC_KEY  : 用 `npx web-push generate-vapid-keys` 生成的 public key（base64url）
