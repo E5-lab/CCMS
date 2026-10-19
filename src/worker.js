@@ -106,19 +106,30 @@ async function requireUser(request, env) {
 
 /* ------------------------------- 同步逻辑（增量 + 墓碑 + LWW） ------------------------------- */
 async function getDelta(db, owner, since) {
-  const cursor = Date.now();
+  let cardsR, billsR, tc = null, tb = null;
   if (!since) {
-    const c = await db.prepare('SELECT * FROM cards WHERE owner=? AND deleted=0').bind(owner).all();
-    const b = await db.prepare('SELECT * FROM bills WHERE owner=? AND deleted=0').bind(owner).all();
-    return { cards: norm(c.results), bills: norm(b.results), tombCards: [], tombBills: [], cursor };
+    cardsR = await db.prepare('SELECT * FROM cards WHERE owner=? AND deleted=0').bind(owner).all();
+    billsR = await db.prepare('SELECT * FROM bills WHERE owner=? AND deleted=0').bind(owner).all();
+  } else {
+    cardsR = await db.prepare('SELECT * FROM cards WHERE owner=? AND updatedAt > ?').bind(owner, since).all();
+    billsR = await db.prepare('SELECT * FROM bills WHERE owner=? AND updatedAt > ?').bind(owner, since).all();
+    tc = await db.prepare('SELECT id, updatedAt FROM cards WHERE owner=? AND deleted=1 AND updatedAt > ?').bind(owner, since).all();
+    tb = await db.prepare('SELECT id, updatedAt FROM bills WHERE owner=? AND deleted=1 AND updatedAt > ?').bind(owner, since).all();
   }
-  const c = await db.prepare('SELECT * FROM cards WHERE owner=? AND updatedAt > ?').bind(owner, since).all();
-  const b = await db.prepare('SELECT * FROM bills WHERE owner=? AND updatedAt > ?').bind(owner, since).all();
-  const tc = await db.prepare('SELECT id FROM cards WHERE owner=? AND deleted=1 AND updatedAt > ?').bind(owner, since).all();
-  const tb = await db.prepare('SELECT id FROM bills WHERE owner=? AND deleted=1 AND updatedAt > ?').bind(owner, since).all();
+  // 游标 = 本批返回数据中最大的 updatedAt（与 since 取较大者）。
+  // 绝不能用当前时间做游标：记录的 updatedAt 来自客户端时钟（通常早于服务端此刻），
+  // 若游标超前于数据，下次增量拉取（since=cursor）会漏掉全部记录，表现为“刷新后数据消失”。
+  let cursor = since || 0;
+  const bump = (v) => { const n = Number(v) || 0; if (n > cursor) cursor = n; };
+  for (const r of cardsR.results || []) bump(r.updatedAt);
+  for (const r of billsR.results || []) bump(r.updatedAt);
+  for (const r of (tc && tc.results) || []) bump(r.updatedAt);
+  for (const r of (tb && tb.results) || []) bump(r.updatedAt);
   return {
-    cards: norm(c.results), bills: norm(b.results),
-    tombCards: (tc.results || []).map(r => r.id), tombBills: (tb.results || []).map(r => r.id), cursor,
+    cards: norm(cardsR.results), bills: norm(billsR.results),
+    tombCards: ((tc && tc.results) || []).map(r => r.id),
+    tombBills: ((tb && tb.results) || []).map(r => r.id),
+    cursor,
   };
 }
 

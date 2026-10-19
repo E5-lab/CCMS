@@ -40,11 +40,13 @@ const Store = {
   },
 
   async load() {
+    // 先用本地缓存打底（刷新后立即有数据），再合并云端增量——
+    // 若反过来（先合并再读缓存），空增量会把空结果写回缓存，导致“刷新后卡片消失”。
+    if (!cards.length && !bills.length) { cards = load(LS.cards, []); bills = load(LS.bills, []); }
     if (this.isCloud) {
       try { this._apply(await Sync.load(this.session, this.cursor || 0)); }
       catch (e) { if (navigator.onLine) throw e; } // 离线则使用本地缓存
     }
-    if (!cards.length && !bills.length) { cards = load(LS.cards, []); bills = load(LS.bills, []); }
     return { cards, bills };
   },
 
