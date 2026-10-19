@@ -29,8 +29,6 @@
       </nav>
       <div class="sidebar-foot">
         <div id="syncState" class="sync-state">本地存储</div>
-        <button id="seedBtn" class="link-btn">导入示例数据</button>
-        <button id="resetBtn" class="link-btn danger">清空数据</button>
       </div>
     </aside>
 
@@ -38,12 +36,15 @@
       <header class="topbar">
         <h1 id="pageTitle">概览</h1>
         <div id="topActions" class="top-actions"></div>
+        <div id="accountArea" class="account-area"></div>
       </header>
       <section id="viewRoot" class="view-root"></section>
     </main>
   </div>
 
   <div id="modalRoot"></div>
+  <!-- Web Push 公钥（VAPID）：用于浏览器订阅还款提醒。私钥在 Worker 环境变量 VAPID_PRIVATE_KEY 中配置。 -->
+  <script>window.VAPID_PUBLIC = "BBZlC1P0Ktdnq4tdOtLyoKlLNgHavp7Vt571etvciqgr_JBYzwhX6BmMWue2oIP4RtGtzjbTF1h1sivi5hWNJxQ";</script>
   <script src="./app.js"></script>
 </body>
 </html>

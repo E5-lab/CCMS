@@ -5,7 +5,7 @@
  *   - 云端账户（Cloudflare D1）：注册/登录真实账号，多设备自动同步，按用户隔离
  * ========================================================================= */
 
-const LS = { cards: 'ccms.cards.v1', bills: 'ccms.bills.v1', mode: 'ccms.mode', email: 'ccms.email', session: 'ccms.session' };
+const LS = { cards: 'ccms.cards.v1', bills: 'ccms.bills.v1', mode: 'ccms.mode', email: 'ccms.email', session: 'ccms.session', cursor: 'ccms.cursor.v1' };
 
 let cards = [];
 let bills = [];
@@ -13,80 +13,106 @@ let view = 'dashboard';
 const now = new Date();
 const sel = { year: now.getFullYear(), month: now.getMonth() + 1 };
 
-/* --------------------------- 数据层（双模式） --------------------------- */
-const Store = {
-  mode: localStorage.getItem(LS.mode) || 'local',     // 'local' | 'cloud'
-  email: localStorage.getItem(LS.email) || '',
-  session: localStorage.getItem(LS.session) || '',
-  pendingDelete: { cards: [], bills: [] },
-
-  // 仅当「云端账户」模式且已登录时才走远端接口；否则回退本地
-  get isCloud() { return this.mode === 'cloud' && !!this.session; },
-
-  async load() {
-    if (this.isCloud) {
-      const r = await fetch('/api/state', { headers: { 'authorization': 'Bearer ' + this.session } });
-      if (!r.ok) throw new Error(await apiError(r, '同步拉取失败'));
-      const d = await r.json();
-      return {
-        cards: (d.cards || []).map(c => ({ ...c, closed: !!c.closed })),
-        bills: d.bills || [],
-      };
-    }
-    return { cards: load(LS.cards, []), bills: load(LS.bills, []) };
-  },
-
-  async save(cards, bills) {
-    if (this.isCloud) {
-      const r = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + this.session },
-        body: JSON.stringify({
-          cards, bills,
-          deleteCards: this.pendingDelete.cards,
-          deleteBills: this.pendingDelete.bills,
-        }),
-      });
-      if (!r.ok) throw new Error(await apiError(r, '同步失败'));
-      const d = await r.json();
-      this.pendingDelete = { cards: [], bills: [] };
-      return {
-        cards: (d.cards || []).map(c => ({ ...c, closed: !!c.closed })),
-        bills: d.bills || [],
-      };
-    }
-    localStorage.setItem(LS.cards, JSON.stringify(cards));
-    localStorage.setItem(LS.bills, JSON.stringify(bills));
-    return { cards, bills };
-  },
-
-  // 注册 / 登录 / 登出
+/* ----------------------------- 鉴权层（Auth） ----------------------------- */
+const Auth = {
   async register(email, password) {
-    const r = await fetch('/api/register', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+    const r = await fetch('/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
     if (!r.ok) throw new Error(await apiError(r, '注册失败'));
     return r.json();
   },
   async login(email, password) {
-    const r = await fetch('/api/login', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
     if (!r.ok) throw new Error(await apiError(r, '登录失败'));
     return r.json();
   },
-  async logout() {
-    if (this.session) {
-      try {
-        await fetch('/api/logout', { method: 'POST', headers: { 'authorization': 'Bearer ' + this.session } });
-      } catch (e) { /* ignore */ }
-    }
-    this.session = ''; this.email = '';
-    localStorage.removeItem(LS.session); localStorage.removeItem(LS.email);
+  async logout(session) {
+    if (session) { try { await fetch('/api/logout', { method: 'POST', headers: { 'authorization': 'Bearer ' + session } }); } catch (e) {} }
   },
 };
+
+/* ----------------------------- 同步层（Sync：增量 + 墓碑 + LWW） ----------------------------- */
+const Sync = {
+  async load(session, since) {
+    const url = '/api/state' + (since ? ('?since=' + since) : '');
+    const r = await fetch(url, { headers: { 'authorization': 'Bearer ' + session } });
+    if (!r.ok) throw new Error(await apiError(r, '同步拉取失败'));
+    return r.json();
+  },
+  async save(session, data, since) {
+    const r = await fetch('/api/sync', { method: 'POST', headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + session }, body: JSON.stringify({ ...data, since }) });
+    if (!r.ok) throw new Error(await apiError(r, '同步失败'));
+    return r.json();
+  },
+};
+// 记录级 LWW 合并：远端更新时间更新则覆盖本地
+function mergeLWW(localList, remoteList) {
+  const map = new Map(localList.map(x => [x.id, x]));
+  for (const r of remoteList) {
+    const l = map.get(r.id);
+    if (!l || (Number(r.updatedAt) || 0) >= (Number(l.updatedAt) || 0)) map.set(r.id, r);
+  }
+  return [...map.values()];
+}
+
+/* ----------------------------- 数据层（Store：协调 + 本地缓存） ----------------------------- */
+const Store = {
+  mode: localStorage.getItem(LS.mode) || 'local',     // 'local' | 'cloud'
+  email: localStorage.getItem(LS.email) || '',
+  session: localStorage.getItem(LS.session) || '',
+  cursor: Number(localStorage.getItem(LS.cursor)) || 0, // 上次同步游标
+  dirty: false,                                        // 离线写队列标记
+  pendingDelete: { cards: [], bills: [] },
+
+  get isCloud() { return this.mode === 'cloud' && !!this.session; },
+
+  _cache(c, b) { localStorage.setItem(LS.cards, JSON.stringify(c)); localStorage.setItem(LS.bills, JSON.stringify(b)); },
+
+  // 应用服务端增量：LWW 合并 + 墓碑删除
+  _apply(delta) {
+    // 归一化：无论服务端返回 updatedAt 还是 updated_at，都统一为 updatedAt，保证 LWW 比较正确
+    const norm = r => ({ ...r, updatedAt: Number(r.updatedAt) || Number(r.updated_at) || Date.now() });
+    cards = mergeLWW(cards, (delta.cards || []).map(c => norm({ ...c, closed: !!c.closed })));
+    bills = mergeLWW(bills, (delta.bills || []).map(norm));
+    (delta.tombCards || []).forEach(id => { cards = cards.filter(x => x.id !== id); this.pendingDelete.cards = this.pendingDelete.cards.filter(x => x !== id); });
+    (delta.tombBills || []).forEach(id => { bills = bills.filter(x => x.id !== id); this.pendingDelete.bills = this.pendingDelete.bills.filter(x => x !== id); });
+    if (delta.cursor) { this.cursor = delta.cursor; localStorage.setItem(LS.cursor, String(this.cursor)); }
+    this._cache(cards, bills);
+  },
+
+  async load() {
+    if (this.isCloud) {
+      try { this._apply(await Sync.load(this.session, this.cursor || 0)); }
+      catch (e) { if (navigator.onLine) throw e; } // 离线则使用本地缓存
+    }
+    if (!cards.length && !bills.length) { cards = load(LS.cards, []); bills = load(LS.bills, []); }
+    return { cards, bills };
+  },
+
+  async save(c, b) {
+    cards = c; bills = b; this._cache(cards, bills);   // 始终先写本地缓存（离线写队列）
+    if (!this.isCloud) return { cards, bills };
+    try {
+      const d = await Sync.save(this.session, { cards, bills, deleteCards: this.pendingDelete.cards, deleteBills: this.pendingDelete.bills }, this.cursor || 0);
+      this.pendingDelete = { cards: [], bills: [] };
+      this._apply(d); this.dirty = false;
+      return { cards, bills };
+    } catch (e) {
+      if (navigator.onLine) throw e;   // 在线但出错才提示
+      this.dirty = true;              // 离线：标记脏，待 online 时回放
+      return { cards, bills };
+    }
+  },
+};
+
+// 离线写队列回放：网络恢复时把本地改动推送到云端
+async function flushQueue() {
+  if (Store.isCloud && Store.dirty) {
+    Store.dirty = false;
+    try { const s = await Store.save(cards, bills); cards = s.cards; bills = s.bills; render(); }
+    catch (e) { Store.dirty = true; }
+  }
+}
+window.addEventListener('online', flushQueue);
 
 /* ------------------------------- 工具 ------------------------------- */
 // 读取 API 错误响应中的友好提示（如 D1 未绑定）
@@ -118,6 +144,35 @@ function statusText(s) { return { unpaid: '未还', paid: '已还', min: '最低
 function statusClass(s) { return ['unpaid', 'paid', 'min'].includes(s) ? s : 'unpaid'; }
 function activeCards() { return cards.filter(c => !c.closed); }
 
+// 仅允许 data:image 或 http(s) 链接，杜绝 XSS / CSS 注入
+function safeImage(v) {
+  if (!v) return '';
+  if (/^data:image\//i.test(v)) return v;
+  if (/^https?:\/\//i.test(v)) return v.replace(/['"()\\]/g, '');
+  return '';
+}
+function imgCss(v) { const s = safeImage(v); return s ? `url("${s}")` : ''; }
+
+// 备份文件校验：结构 + 类型 + 字段裁剪
+function validateBackup(d) {
+  if (!d || typeof d !== 'object') throw new Error('文件不是合法的 JSON');
+  if (!Array.isArray(d.cards) || !Array.isArray(d.bills)) throw new Error('缺少 cards / bills 数组');
+  const cleanCard = (c) => ({
+    id: String(c.id || uid()), name: String(c.name || ''), bank: String(c.bank || ''),
+    last4: String(c.last4 || ''), billingDay: Number(c.billingDay) || null, dueDay: Number(c.dueDay) || null,
+    gracePeriod: Number(c.gracePeriod) || null, limit: Number(c.limit) || null, color: String(c.color || '#4f46e5'),
+    image: safeImage(c.image), closed: !!c.closed, closedAt: String(c.closedAt || ''),
+    points: Number(c.points) || null, annual_fee: Number(c.annual_fee) || null, annual_fee_date: String(c.annual_fee_date || ''),
+    updatedAt: Number(c.updatedAt) || Date.now(),
+  });
+  const cleanBill = (b) => ({
+    id: String(b.id || uid()), cardId: String(b.cardId || ''), period: String(b.period || ''),
+    statement: Number(b.statement) || 0, paid: Number(b.paid) || 0, status: ['unpaid', 'paid', 'min'].includes(b.status) ? b.status : 'unpaid',
+    dueDate: String(b.dueDate || ''), note: String(b.note || ''), updatedAt: Number(b.updatedAt) || Date.now(),
+  });
+  return { cards: d.cards.map(cleanCard), bills: d.bills.map(cleanBill) };
+}
+
 // 自动生成还款日：依据卡片账单日(billingDay)与还款日(dueDay)
 // 若还款日 <= 账单日，则顺延至下一月；否则同月。
 function autoDueDate(card, period) {
@@ -139,6 +194,7 @@ const TITLES = {
 function render() {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.getElementById('pageTitle').textContent = TITLES[view];
+  renderAccountArea();   // 右上角账户区（主流站点布局）
   const root = document.getElementById('viewRoot');
   const actions = document.getElementById('topActions');
   actions.innerHTML = '';
@@ -210,8 +266,8 @@ function renderDashboard() {
 
 /* ------------------------------- 信用卡（有效） ------------------------------- */
 function ccCardHtml(c) {
-  const bg = c.image
-    ? `background-image:url('${c.image}')`
+  const bg = imgCss(c.image)
+    ? `background-image:${imgCss(c.image)};background-size:cover;background-position:center`
     : `background:${esc(c.color || '#4f46e5')}`;
   const grace = c.gracePeriod ? ` · 免息期 ${esc(c.gracePeriod)} 天` : '';
   return `<div class="cc-card" style="${bg}">
@@ -249,7 +305,7 @@ function renderClosed() {
     return `<div class="empty"><div class="big">🗂️</div>暂无已注销的信用卡。注销的卡片会出现在这里，保留你的玩卡经历。</div>`;
   }
   const items = closed.map(c => {
-    const bg = c.image ? `background-image:url('${c.image}')` : `background:${esc(c.color || '#4f46e5')}`;
+    const bg = imgCss(c.image) ? `background-image:${imgCss(c.image)};background-size:cover;background-position:center` : `background:${esc(c.color || '#4f46e5')}`;
     const cnt = bills.filter(b => b.cardId === c.id).length;
     return `<div class="cc-card closed-card" style="${bg}">
       <div class="cc-overlay"></div>
@@ -398,11 +454,44 @@ function updateSyncState() {
   const el = document.getElementById('syncState');
   if (!el) return;
   if (Store.isCloud) {
-    el.textContent = '云端账户 · ' + (Store.email || '已登录');
+    el.textContent = '云端账户';
     el.classList.add('remote');
   } else {
     el.textContent = '本地存储';
     el.classList.remove('remote');
+  }
+}
+
+// 右上角账户区：登录态显示账户头像+邮箱+下拉菜单；未登录显示「登录/注册」入口
+function renderAccountArea() {
+  const el = document.getElementById('accountArea');
+  if (!el) return;
+  if (Store.isCloud) {
+    const initial = (Store.email || '?').trim().charAt(0).toUpperCase() || '?';
+    el.innerHTML = `<div class="account-chip" id="acChip">
+        <span class="account-avatar">${esc(initial)}</span>
+        <span class="account-email">${esc(Store.email)}</span>
+        <span class="account-caret">▾</span>
+      </div>
+      <div class="account-menu" id="acMenu" style="display:none">
+        <button id="acSettings">账户设置</button>
+        <button id="acLogout">退出登录</button>
+      </div>`;
+    const chip = document.getElementById('acChip');
+    const menu = document.getElementById('acMenu');
+    chip.onclick = (e) => { e.stopPropagation(); menu.style.display = (menu.style.display === 'none') ? 'block' : 'none'; };
+    document.getElementById('acSettings').onclick = () => { view = 'settings'; render(); };
+    document.getElementById('acLogout').onclick = async () => {
+      await Auth.logout(Store.session);
+      Store.session = ''; Store.email = '';
+      localStorage.removeItem(LS.session); localStorage.removeItem(LS.email);
+      menu.style.display = 'none';
+      updateSyncState(); renderAccountArea(); render();
+    };
+    document.addEventListener('click', () => { menu.style.display = 'none'; }, { once: true });
+  } else {
+    el.innerHTML = `<button class="btn sm" id="acLogin">登录 / 注册</button>`;
+    document.getElementById('acLogin').onclick = () => { view = 'settings'; render(); };
   }
 }
 function renderSettings() {
@@ -441,25 +530,36 @@ function renderSettings() {
       </div>
     </div>
     ${accountBlock}
-    <div class="setting-row" style="border:none">
-      <div class="desc">「立即拉取」从云端覆盖本地（云端模式且已登录时可用）。</div>
+    ${loggedIn ? `<div class="setting-row" style="border:none">
+      <div class="desc">开启后，每天 09:00 系统会通过浏览器推送提醒临近 3 天内还款的账单（需授予通知权限）。</div>
+      <div style="display:flex;gap:10px">
+        <button class="btn" id="pushBtn">开启还款提醒</button>
+        <button class="btn" id="pullBtn">立即拉取</button>
+      </div>
+    </div>` : `<div class="setting-row" style="border:none">
       <div style="display:flex;gap:10px">
         <button class="btn" id="pullBtn">立即拉取</button>
       </div>
-    </div>
+    </div>`}
   </div>
   <div class="panel">
-    <div class="panel-title">备份与跨设备迁移（无需云端）</div>
-    <div class="desc">把全部数据导出为 JSON 文件做备份；换设备/换浏览器时，导入该文件即可恢复。这是最简单的跨设备方式，不依赖任何后端。</div>
-    <div style="display:flex;gap:10px;margin-top:10px">
+    <div class="panel-title">数据管理</div>
+    <div class="desc">备份与跨设备迁移（无需云端）：导出/导入 JSON 备份文件，最简单。CSV 账单导入：把银行账单按模板批量导入。</div>
+    <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
       <button class="btn" id="exportBtn">导出备份</button>
       <button class="btn" id="importBtn">导入备份</button>
+      <button class="btn" id="csvBtn">导入 CSV 账单</button>
       <input id="importFile" type="file" accept="application/json,.json" style="display:none">
     </div>
   </div>
+  <div class="panel danger-panel">
+    <div class="panel-title">危险操作</div>
+    <div class="desc">清空数据将删除本地的全部信用卡与账单（云端账户下也会同步删除），不可恢复。</div>
+    <div style="margin-top:10px"><button class="btn danger" id="resetBtn">清空所有数据</button></div>
+  </div>
   <div class="panel">
     <div class="panel-title">关于</div>
-    <div class="desc">CCMS · 信用卡账单管理。卡面图片在本地以数据 URL 保存。</div>
+    <div class="desc">CCMS · 信用卡账单管理。卡面图片支持本地上传或图床链接。</div>
   </div>`;
 }
 
@@ -555,7 +655,7 @@ function bindViewEvents() {
     const password = document.getElementById('pwInput').value;
     if (!email || !password) { alert('请填写邮箱和密码'); return; }
     try {
-      const d = await Store.register(email, password);
+      const d = await Auth.register(email, password);
       Store.session = d.token; Store.email = d.email;
       localStorage.setItem(LS.session, d.token); localStorage.setItem(LS.email, d.email);
       Store.mode = 'cloud'; localStorage.setItem(LS.mode, 'cloud');
@@ -571,7 +671,7 @@ function bindViewEvents() {
     const password = document.getElementById('pwInput').value;
     if (!email || !password) { alert('请填写邮箱和密码'); return; }
     try {
-      const d = await Store.login(email, password);
+      const d = await Auth.login(email, password);
       Store.session = d.token; Store.email = d.email;
       localStorage.setItem(LS.session, d.token); localStorage.setItem(LS.email, d.email);
       Store.mode = 'cloud'; localStorage.setItem(LS.mode, 'cloud');
@@ -582,12 +682,46 @@ function bindViewEvents() {
   };
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) logoutBtn.onclick = async () => {
-    await Store.logout();
-    localStorage.setItem(LS.cards, JSON.stringify(cards));
-    localStorage.setItem(LS.bills, JSON.stringify(bills));
+    await Auth.logout(Store.session);
+    Store.session = ''; Store.email = '';
+    localStorage.removeItem(LS.session); localStorage.removeItem(LS.email);
     updateSyncState(); render();
-    alert('已退出登录，数据保留在本地。');
+    alert('已退出登录，云端账户下的数据保留在云端，本地副本仍在。');
   };
+
+  // Web Push 还款提醒订阅 / 取消
+  const pushBtn = document.getElementById('pushBtn');
+  if (pushBtn) pushBtn.onclick = async () => {
+    if (!window.VAPID_PUBLIC) { alert('本站尚未配置 Web Push 公钥，无法开启提醒。请在 Worker 环境变量中配置 VAPID 密钥（详见 README）。'); return; }
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { alert('当前浏览器不支持 Web Push。'); return; }
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { alert('未授予通知权限，无法开启提醒。'); return; }
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: (window.VAPID_PUBLIC || '') });
+      const raw = sub.toJSON();
+      await fetch('/api/push/subscribe', { method: 'POST', headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + Store.session }, body: JSON.stringify({ endpoint: raw.endpoint, p256dh: raw.keys.p256dh, auth: raw.keys.auth }) });
+      alert('已开启还款提醒。');
+    } catch (e) { alert('开启提醒失败：' + e.message); }
+  };
+
+  // 清空数据（危险操作）
+  const resetBtn = document.getElementById('resetBtn');
+  if (resetBtn) resetBtn.onclick = async () => {
+    if (!confirm('将清空全部信用卡与账单（含云端），不可恢复，确定？')) return;
+    if (Store.isCloud) {
+      Store.pendingDelete.cards.push(...cards.map(c => c.id));
+      Store.pendingDelete.bills.push(...bills.map(b => b.id));
+    }
+    cards = []; bills = [];
+    await commit();
+    alert('已清空。');
+  };
+
+  // CSV 账单导入
+  const csvBtn = document.getElementById('csvBtn');
+  if (csvBtn) csvBtn.onclick = () => openCsvModal();
 
   // 导出 / 导入备份（无需后端的跨设备方案）
   const exportBtn = document.getElementById('exportBtn');
@@ -638,7 +772,7 @@ function openCardModal(id) {
   const c = id ? cardById(id) : null;
   const colors = PALETTE.map(col => `<option value="${col}" ${c && c.color === col ? 'selected' : ''}>${col}</option>`).join('');
   const preview = c && c.image
-    ? `<div class="img-preview" style="background-image:url('${c.image}')"></div>`
+    ? `<div class="img-preview" style="background-image:${imgCss(c.image)};background-size:cover;background-position:center"></div>`
     : `<div class="img-preview">上传卡面图片（可选）</div>`;
   const html = `<div class="modal-mask" id="mask">
     <div class="modal">
@@ -656,6 +790,11 @@ function openCardModal(id) {
         <div class="field"><label>免息期（天）</label><input id="f_grace" type="number" min="0" max="90" value="${esc(c ? c.gracePeriod : '')}" placeholder="50"></div>
         <div class="field"><label>信用额度</label><input id="f_limit" type="number" value="${esc(c ? c.limit : '')}" placeholder="50000"></div>
       </div>
+      <div class="row2">
+        <div class="field"><label>积分余额</label><input id="f_points" type="number" min="0" value="${esc(c ? c.points : '')}" placeholder="如 120000"></div>
+        <div class="field"><label>年费（元）</label><input id="f_fee" type="number" min="0" value="${esc(c ? c.annual_fee : '')}" placeholder="如 2000"></div>
+      </div>
+      <div class="field"><label>年费日期（每年）</label><input id="f_feedate" type="date" value="${esc(c ? c.annual_fee_date : '')}"></div>
       <div class="field"><label>颜色标签</label><select id="f_color">${colors}</select></div>
       <div class="field">
         <label>卡面图片（本地上传 或 图床链接，二选一）</label>
@@ -696,7 +835,9 @@ function openCardModal(id) {
       const urlInput = document.getElementById('f_imgurl');
       if (urlInput) urlInput.value = '';
       const pv = document.querySelector('.img-preview');
-      pv.style.backgroundImage = `url('${imgData}')`;
+      pv.style.backgroundImage = imgCss(imgData);
+      pv.style.backgroundSize = 'cover';
+      pv.style.backgroundPosition = 'center';
       pv.textContent = '';
     };
     reader.readAsDataURL(file);
@@ -710,7 +851,9 @@ function openCardModal(id) {
     const fileInput = document.getElementById('f_image');
     if (fileInput) fileInput.value = '';
     const pv = document.querySelector('.img-preview');
-    pv.style.backgroundImage = `url('${v}')`;
+    pv.style.backgroundImage = imgCss(v);
+    pv.style.backgroundSize = 'cover';
+    pv.style.backgroundPosition = 'center';
     pv.textContent = '';
   };
   document.getElementById('f_imgclear').onclick = () => {
@@ -738,6 +881,9 @@ function openCardModal(id) {
       dueDay: document.getElementById('f_due').value,
       gracePeriod: document.getElementById('f_grace').value,
       limit: document.getElementById('f_limit').value || 0,
+      points: document.getElementById('f_points').value || null,
+      annual_fee: document.getElementById('f_fee').value || null,
+      annual_fee_date: document.getElementById('f_feedate').value || '',
       color: document.getElementById('f_color').value,
       image: imgData,
       closed,
@@ -822,6 +968,157 @@ function openBillModal(id, presetCardId) {
   };
 }
 
+/* ------------------------------- CSV 解析 ------------------------------- */
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', inQ = false;
+  text = text.replace(/^\uFEFF/, ''); // 去除 UTF-8 BOM
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false;
+      } else field += ch;
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ',') { row.push(field); field = ''; }
+      else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (ch === '\r') { /* 忽略 */ }
+      else field += ch;
+    }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
+
+/* ------------------------------- 弹窗：CSV 导入账单 ------------------------------- */
+function openCsvModal() {
+  const html = `<div class="modal-mask" id="mask">
+    <div class="modal" style="width:min(660px,94vw)">
+      <h3>导入 CSV 账单</h3>
+      <div class="desc" style="margin-bottom:12px">
+        按模板批量导入账单。表头需包含：<b>卡片, 账单月份, 本期账单</b>（其余可选：已还, 状态, 还款日, 备注）。<br>
+        系统按「卡片」名称匹配已有信用卡；若找不到则自动新建一张同名卡片。
+      </div>
+      <div class="file-row" style="margin-bottom:12px">
+        <input id="csvFile" type="file" accept=".csv,text/csv" style="flex:1">
+        <button class="btn sm" id="csvTpl" type="button">下载模板</button>
+      </div>
+      <div id="csvPreview" class="csv-preview"></div>
+      <div class="modal-actions">
+        <button class="btn" id="csvCancel">取消</button>
+        <button class="btn primary" id="csvImport" disabled>确认导入</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('modalRoot').innerHTML = html;
+  const close = () => document.getElementById('modalRoot').innerHTML = '';
+  document.getElementById('csvCancel').onclick = close;
+  document.getElementById('mask').onclick = e => { if (e.target.id === 'mask') close(); };
+
+  document.getElementById('csvTpl').onclick = () => {
+    const tpl = '卡片,账单月份,本期账单,已还,状态,还款日,备注\n招行经典白,2026-09,5234.10,0,未还,2026-10-12,餐饮\n';
+    const blob = new Blob(['﻿' + tpl], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'ccms-bills-template.csv'; a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  let parsed = null;
+  const previewEl = document.getElementById('csvPreview');
+  const importBtn = document.getElementById('csvImport');
+
+  function analyze(text) {
+    const rows = parseCsv(text);
+    if (rows.length < 2) { previewEl.innerHTML = '<div class="desc">没有可导入的数据行。</div>'; importBtn.disabled = true; return; }
+    const header = rows[0].map(h => h.trim());
+    const idx = (...names) => header.findIndex(h => names.includes(h.toLowerCase()));
+    const iCard = idx('卡片', '卡名称', 'card', 'cardname');
+    const iPeriod = idx('账单月份', 'period', 'month', '月份');
+    const iStmt = idx('本期账单', 'statement', 'amount', '金额');
+    const iPaid = idx('已还', 'paid');
+    const iStatus = idx('状态', 'status');
+    const iDue = idx('还款日', 'duedate', 'due');
+    const iNote = idx('备注', 'note');
+    if (iCard < 0 || iPeriod < 0 || iStmt < 0) {
+      previewEl.innerHTML = '<div class="desc" style="color:var(--red)">模板缺少必要列：需要「卡片」「账单月份」「本期账单」。</div>';
+      importBtn.disabled = true; return;
+    }
+    const nameMap = {};
+    cards.forEach(c => { nameMap[c.name.trim().toLowerCase()] = c; });
+    const statusMap = { '未还': 'unpaid', '已还': 'paid', '最低还款': 'min', 'unpaid': 'unpaid', 'paid': 'paid', 'min': 'min' };
+    const out = [];
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      const cardName = (row[iCard] || '').trim();
+      const period = (row[iPeriod] || '').trim();
+      const stmtRaw = (row[iStmt] || '').trim();
+      const paidRaw = iPaid >= 0 ? (row[iPaid] || '').trim() : '';
+      const statusRaw = iStatus >= 0 ? (row[iStatus] || '').trim() : '';
+      const dueRaw = iDue >= 0 ? (row[iDue] || '').trim() : '';
+      const noteRaw = iNote >= 0 ? (row[iNote] || '').trim() : '';
+      const warn = [];
+      if (!cardName) warn.push('缺卡片');
+      if (!/^\d{4}-\d{2}$/.test(period)) warn.push('月份格式应为 YYYY-MM');
+      const statement = Number(stmtRaw);
+      if (stmtRaw === '' || isNaN(statement)) warn.push('金额非数字');
+      const paid = paidRaw === '' ? 0 : Number(paidRaw);
+      const status = statusMap[statusRaw] || 'unpaid';
+      const match = cardName ? (nameMap[cardName.toLowerCase()] || 'NEW') : null;
+      out.push({ cardName, period, statement: isNaN(statement) ? 0 : statement, paid: isNaN(paid) ? 0 : paid, status, dueDate: dueRaw, note: noteRaw, match, warn });
+    }
+    parsed = out;
+    renderPreview(out);
+  }
+
+  function renderPreview(list) {
+    const okCount = list.filter(x => x.warn.length === 0).length;
+    const newCards = [...new Set(list.filter(x => x.match === 'NEW' && x.cardName).map(x => x.cardName))];
+    let h = `<div class="desc" style="margin-bottom:8px">共 ${list.length} 行，可导入 ${okCount} 行` +
+      (newCards.length ? `，将自动新建卡片：${newCards.map(esc).join('、')}` : '') + `</div>`;
+    h += `<table><thead><tr><th>卡片</th><th>匹配</th><th>账单月份</th><th>本期账单</th><th>已还</th><th>状态</th><th>还款日</th><th>备注</th><th>提示</th></tr></thead><tbody>`;
+    h += list.map(x => `<tr>
+      <td>${esc(x.cardName)}</td>
+      <td>${x.match === 'NEW' ? '<span class="badge closed">新建</span>' : (x.match ? '<span class="badge paid">匹配</span>' : '<span class="badge unpaid">无</span>')}</td>
+      <td>${esc(x.period)}</td><td>${x.statement}</td><td>${x.paid}</td>
+      <td>${statusText(x.status)}</td><td>${esc(x.dueDate)}</td><td>${esc(x.note)}</td>
+      <td class="muted">${esc(x.warn.join('，'))}</td>
+    </tr>`).join('');
+    h += `</tbody></table>`;
+    previewEl.innerHTML = h;
+    importBtn.disabled = list.length === 0;
+  }
+
+  function doImport() {
+    if (!parsed) return;
+    const nameMap = {};
+    cards.forEach(c => { nameMap[c.name.trim().toLowerCase()] = c; });
+    let added = 0, createdCards = 0, skipped = 0;
+    for (const x of parsed) {
+      if (x.warn.length) { skipped++; continue; }
+      let card = (x.match && x.match !== 'NEW') ? x.match : nameMap[x.cardName.toLowerCase()];
+      if (!card) {
+        card = { id: uid(), name: x.cardName, bank: '', last4: '', billingDay: 1, dueDay: 25, gracePeriod: 50, limit: 0, color: PALETTE[cards.length % PALETTE.length], image: '', closed: false, closedAt: '', points: null, annual_fee: null, annual_fee_date: '', updatedAt: Date.now() };
+        cards.push(card); nameMap[x.cardName.toLowerCase()] = card; createdCards++;
+      }
+      bills.push({ id: uid(), cardId: card.id, period: x.period, statement: x.statement, paid: x.paid, status: x.status, dueDate: x.dueDate, note: x.note, updatedAt: Date.now() });
+      added++;
+    }
+    close();
+    commit();
+    alert(`导入完成：新增 ${added} 笔账单${createdCards ? '，新建 ' + createdCards + ' 张信用卡' : ''}${skipped ? '；跳过 ' + skipped + ' 行（数据不完整）' : ''}。`);
+  }
+
+  importBtn.onclick = doImport;
+  document.getElementById('csvFile').onchange = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => analyze(String(reader.result));
+    reader.readAsText(f);
+  };
+}
+
 /* ------------------------------- 提交（持久化） ------------------------------- */
 async function commit() {
   try {
@@ -834,65 +1131,8 @@ async function commit() {
 }
 
 /* ------------------------------- 示例 / 清空 ------------------------------- */
-function seedSample() {
-  if (cards.length || bills.length) {
-    if (!confirm('将追加一组示例数据到现有数据之后，继续？')) return;
-  }
-  const banks = [
-    { name: '招行经典白', bank: '招商银行', last4: '8821', billingDay: 5, dueDay: 23, gracePeriod: 50, limit: 80000, color: '#0ea5e9' },
-    { name: '中信颜卡', bank: '中信银行', last4: '3390', billingDay: 12, dueDay: 30, gracePeriod: 50, limit: 50000, color: '#f59e0b' },
-    { name: '建行生活卡', bank: '建设银行', last4: '6677', billingDay: 18, dueDay: 8, gracePeriod: 48, limit: 30000, color: '#10b981' },
-  ];
-  const newCards = banks.map(b => ({ id: uid(), closed: false, closedAt: '', image: '', updatedAt: Date.now(), ...b }));
-  cards.push(...newCards);
-
-  const base = now.getFullYear();
-  const sample = [];
-  newCards.forEach((c, ci) => {
-    for (let m = 1; m <= 12; m++) {
-      if (base === now.getFullYear() && m > now.getMonth() + 1) continue;
-      const stmt = Math.round((800 + ci * 400 + m * 137) * 100) / 100;
-      const paid = m < now.getMonth() + 1 ? stmt : (m === now.getMonth() + 1 ? Math.round(stmt * 0.3 * 100) / 100 : 0);
-      sample.push({
-        id: uid(), cardId: c.id, period: monthKey(base, m),
-        statement: stmt, paid,
-        status: m < now.getMonth() + 1 ? 'paid' : 'unpaid',
-        dueDate: autoDueDate(c, monthKey(base, m)),
-        note: '', updatedAt: Date.now(),
-      });
-    }
-  });
-  const prev = base - 1;
-  if (!bills.some(b => b.period.startsWith(String(prev)))) {
-    newCards.forEach((c, ci) => {
-      for (let m = 1; m <= 12; m++) {
-        const stmt = Math.round((700 + ci * 350 + m * 120) * 100) / 100;
-        sample.push({
-          id: uid(), cardId: c.id, period: monthKey(prev, m),
-          statement: stmt, paid: stmt, status: 'paid',
-          dueDate: autoDueDate(c, monthKey(prev, m)), note: '', updatedAt: Date.now(),
-        });
-      }
-    });
-  }
-  bills.push(...sample);
-  commit();
-}
-
-async function resetAll() {
-  if (!confirm('将清空所有信用卡与账单数据（不可恢复），确定？')) return;
-  if (Store.isCloud) {
-    Store.pendingDelete.cards.push(...cards.map(c => c.id));
-    Store.pendingDelete.bills.push(...bills.map(b => b.id));
-  }
-  cards = []; bills = [];
-  await commit();
-}
-
 /* ------------------------------- 初始化 ------------------------------- */
 document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => { view = b.dataset.view; render(); });
-document.getElementById('seedBtn').onclick = seedSample;
-document.getElementById('resetBtn').onclick = resetAll;
 
 // 云端模式下：窗口重新聚焦 / 页面重新可见时，自动拉取云端最新数据（多设备实时同步）
 let pullTimer = null;

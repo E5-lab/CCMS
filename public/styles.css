@@ -99,11 +99,39 @@ html, body {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 12px;
   margin-bottom: 20px;
 }
 .topbar h1 { font-size: 22px; margin: 0; }
-.top-actions { display: flex; gap: 10px; align-items: center; }
+.top-actions { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+
+/* 右上角账户区（主流站点布局） */
+.account-area { display: flex; align-items: center; gap: 10px; }
+.account-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--panel); border: 1px solid var(--line);
+  padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 13px; color: var(--ink);
+  position: relative; user-select: none;
+}
+.account-chip:hover { background: var(--bg); }
+.account-avatar {
+  width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;
+}
+.account-email { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-caret { color: var(--ink-soft); font-size: 11px; }
+.account-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+  min-width: 150px; padding: 6px; z-index: 40;
+}
+.account-menu button {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--ink);
+}
+.account-menu button:hover { background: var(--bg); }
+.account-area .btn.sm { padding: 6px 12px; }
 
 /* Cards grid */
 .stat-grid {
@@ -290,6 +318,14 @@ select:focus, input:focus { outline: 2px solid var(--brand-soft); border-color: 
   padding: 40px 10px;
 }
 .empty .big { font-size: 32px; margin-bottom: 8px; }
+
+/* 危险操作面板 */
+.danger-panel { border-color: #f1c0c0; background: #fff7f7; }
+.danger-panel .panel-title { color: var(--red); }
+
+/* CSV 导入预览 */
+.csv-preview { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 4px; }
+.csv-preview table th, .csv-preview table td { padding: 7px 9px; font-size: 12px; }
 
 /* Responsive */
 @media (max-width: 760px) {

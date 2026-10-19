@@ -110,3 +110,25 @@ CCMS 是纯静态站点，推荐用 **Cloudflare Pages** 一键部署，**完全
 ---
 
 仓库：https://github.com/E5-lab/CCMS
+
+---
+
+## 近期更新（2026-10）
+
+### 新增功能
+- **主动还款提醒（Cron + Web Push）**：Worker 每日 09:00 扫描「3 天内到期且未还」的账单，通过浏览器 Web Push 主动推送。需在 Worker 环境变量配置 VAPID 密钥（见 `wrangler.toml` 注释，已预生成一对可用密钥）。
+- **积分 / 年费追踪**：信用卡编辑弹窗新增「积分余额 / 年费（元）/ 年费日期（每年）」，方便管理权益与年费周期。
+- **CSV 账单导入**：设置页「数据管理 → 导入 CSV 账单」，提供模板下载、字段映射、按卡片名称自动匹配或新建、导入前预览与校验。
+
+### 体验与安全优化
+- 移除左下角「导入示例数据」；将「清空所有数据」等高风险的按钮移入「设置 → 危险操作」面板。
+- 登录 / 账户信息改为右上角主流布局：头像 + 邮箱 + 下拉菜单（账户设置 / 退出登录）；未登录时显示「登录 / 注册」入口。
+- 同步架构升级为：记录级 **Last-Write-Wins** + **墓碑删除** + **增量同步（since 游标）** + **离线写队列**（网络恢复自动回放）。
+- 修复卡面图片 URL 直拼 `style` 导致的 **XSS 漏洞**（仅允许 `data:image` 与 `https`，并转义）；备份导入增加结构与类型校验（`validateBackup`）。
+
+### Web Push（还款提醒）配置
+1. 在 Cloudflare 后台 Workers → ccms → Settings → Variables & Secrets 添加：
+   - `VAPID_PUBLIC_KEY` = `BBZlC1P0Ktdnq4tdOtLyoKlLNgHavp7Vt571etvciqgr_JBYzwhX6BmMWue2oIP4RtGtzjbTF1h1sivi5hWNJxQ`
+   - `VAPID_PRIVATE_KEY` = （与公钥配对的私钥；在后台 Variables & Secrets 配置，**切勿提交到仓库**；如需自建可运行 `npx web-push generate-vapid-keys` 并同步替换 index.html 中的 `window.VAPID_PUBLIC`）
+2. 前端 `index.html` 已内置上述公钥（`window.VAPID_PUBLIC`）用于浏览器订阅；服务端真正发送推送时需两个环境变量齐全。
+3. 用户在「设置 → 开启还款提醒」授予通知权限后即可接收每日提醒；未配置密钥时功能优雅降级（按钮提示未配置，不报错）。
