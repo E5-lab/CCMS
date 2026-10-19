@@ -12,7 +12,8 @@
 - 📊 **年度汇总**：各卡年度合计 + 全年月度走势（SVG 图表）。
 - 🗂️ **历年汇总**：跨年总览与对比。
 - 🧭 **概览面板**：有效卡数、本月账单、最近待还、总额度速览。
-- ☁️ **多设备同步**：在「设置」中开启云端同步（Cloudflare D1），多设备使用同一「同步密钥」即可共享数据。
+- 💾 **跨设备 / 备份**：「设置」中一键导出 / 导入 JSON 备份，无需任何后端即可在多设备间迁移数据。
+- ☁️ **（可选）云端实时同步**：进阶可在 Cloudflare 后台绑定 D1，开启「云端同步」，多设备用同一密钥自动共享。
 - 🧪 内置「导入示例数据」便于快速体验。
 
 ## 目录结构
@@ -40,19 +41,41 @@ npm run dev        # 启动 wrangler dev，默认 http://localhost:8787
 
 也可直接用浏览器打开 `public/index.html` 体验（默认本地存储模式）。
 
-## 部署到 Cloudflare Workers（无需本地凭证）
+## 部署到 Cloudflare（傻瓜式，无需命令行 / 无需凭证）
 
-支持通过 **Workers Builds（Git 集成）** 或 `npm run deploy` 直接部署，`wrangler.toml` 中**不配置 D1 绑定**，部署开箱即用（默认本地存储模式）。之后如需多设备同步，在 Cloudflare 后台手动绑定 D1：
+CCMS 是纯静态站点，推荐用 **Cloudflare Pages** 一键部署，**完全不需要装任何软件、不需要命令行、不需要 Cloudflare 凭证**。
 
-1. **部署**：连接 GitHub 仓库自动构建，或本地 `npm run deploy`
-2. **创建 D1**：后台 → Storage & Databases → D1 SQL Engine → Create，数据库名 `ccms`
-3. **建表**：进入该数据库的 **Console**，粘贴执行 `migrations/0001_init.sql` 的全部内容
-4. **绑定**：后台 → Workers & Pages → `ccms` → Settings → Bindings → Add binding：
-   - Type 选 **D1 Database**，Variable name 填 **`DB`**，D1 database 选 `ccms`，保存
-5. 绑定后访问站点，「设置 → 云端同步」填同一同步密钥即可多设备共享
+### 方式一：连 GitHub 自动部署（推荐，改动自动上线）
+1. 登录 Cloudflare 后台 → 左侧 **Workers & Pages** → **Create** → 选 **Pages** → **Connect to Git**。
+2. 授权并选择 `E5-lab/CCMS` 仓库。
+3. 构建设置：
+   - Framework preset：**None**
+   - Build command：**留空**
+   - Build output directory：**`public`**
+4. 点 **Save and Deploy**，几十秒后拿到 `*.pages.dev` 域名，直接访问即可用。
 
-> 未绑定 D1 时调用同步接口会返回 503 `D1_NOT_CONFIGURED`，前端会提示「云端存储未启用」，不影响本地模式使用。
-> 本地开发如需使用 D1：取消 `wrangler.toml` 中 `[[d1_databases]]` 注释并填入 `database_id`，然后 `npx wrangler d1 migrations apply ccms --local`。
+之后每次 `git push` 到 GitHub，Cloudflare 会自动重新部署。
+
+### 方式二：直接上传文件夹（连 GitHub 都不要）
+1. Cloudflare 后台 → **Workers & Pages** → **Create** → **Pages** → **Upload assets**。
+2. 把本仓库的 `public` 文件夹拖进去，起个名字（如 `ccms`），点部署。
+3. 完成，拿到域名直接用。
+
+> 两种方式部署后，应用默认使用**本地存储**，开箱即用。无需配置 D1、无需任何后端。
+
+### （可选进阶）多设备云端同步 —— Cloudflare D1
+如果你希望多设备自动实时同步（而不是用下面的导出/导入文件），可在 Cloudflare 后台手动绑定 D1（仍无需本地凭证）：
+1. 后台 → **Storage & Databases** → **D1 SQL Engine** → Create，数据库名 `ccms`。
+2. 进入该数据库 **Console**，粘贴执行 `migrations/0001_init.sql` 的全部内容建表。
+3. 后台 → **Workers & Pages** → `ccms` → **Settings** → **Bindings** → Add binding：
+   Type 选 **D1 Database**，Variable name 填 **`DB`**，选 `ccms`，保存。
+4. 访问站点，「设置 → 云端同步」填同一同步密钥即可多设备共享。
+5. 未绑定 D1 时调用同步会提示「云端存储未启用」，不影响本地模式。
+
+> 本地开发如需用 D1：取消 `wrangler.toml` 中 `[[d1_databases]]` 注释并填 `database_id`，再 `npx wrangler d1 migrations apply ccms --local` 后 `npm run dev`。
+
+## 跨设备（最简单，无需云端）
+「设置 → 备份与跨设备迁移」可一键**导出备份 JSON**；换设备后在同页面**导入备份**即可恢复全部数据。这是最省事的跨设备方式，不依赖任何后端。
 
 ## 数据模型
 

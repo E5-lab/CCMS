@@ -403,8 +403,17 @@ function renderSettings() {
     </div>
   </div>
   <div class="panel">
+    <div class="panel-title">备份与跨设备迁移（无需云端）</div>
+    <div class="desc">把全部数据导出为 JSON 文件做备份；换设备/换浏览器时，导入该文件即可恢复。这是最简单的跨设备方式，不依赖任何后端。</div>
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button class="btn" id="exportBtn">导出备份</button>
+      <button class="btn" id="importBtn">导入备份</button>
+      <input id="importFile" type="file" accept="application/json,.json" style="display:none">
+    </div>
+  </div>
+  <div class="panel">
     <div class="panel-title">关于</div>
-    <div class="desc">CCMS · 信用卡账单管理。卡面图片在本地以数据 URL 保存；云端模式图片会随数据存入 D1（生产建议改用 R2 对象存储）。</div>
+    <div class="desc">CCMS · 信用卡账单管理。卡面图片在本地以数据 URL 保存。</div>
   </div>`;
 }
 
@@ -513,6 +522,47 @@ function bindViewEvents() {
       alert('已从云端拉取最新数据。');
     } catch (e) { alert('拉取失败：' + e.message); }
   };
+
+  // 导出 / 导入备份（无需后端的跨设备方案）
+  const exportBtn = document.getElementById('exportBtn');
+  if (exportBtn) exportBtn.onclick = () => {
+    const data = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), cards, bills }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ccms-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const importBtn = document.getElementById('importBtn');
+  const importFile = document.getElementById('importFile');
+  if (importBtn && importFile) {
+    importBtn.onclick = () => importFile.click();
+    importFile.onchange = () => {
+      const f = importFile.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const d = JSON.parse(reader.result);
+          const nc = Array.isArray(d.cards) ? d.cards : [];
+          const nb = Array.isArray(d.bills) ? d.bills : [];
+          if (!confirm(`将导入 ${nc.length} 张卡、${nb.length} 笔账单，并覆盖当前数据，继续？`)) { importFile.value = ''; return; }
+          cards = nc.map(c => ({ ...c, closed: !!c.closed }));
+          bills = nb;
+          Store.pendingDelete = { cards: [], bills: [] };
+          localStorage.setItem(LS.cards, JSON.stringify(cards));
+          localStorage.setItem(LS.bills, JSON.stringify(bills));
+          render();
+          alert('导入完成，已覆盖当前数据。');
+        } catch (e) {
+          alert('导入失败：文件格式不正确。');
+        }
+        importFile.value = '';
+      };
+      reader.readAsText(f);
+    };
+  }
 }
 
 /* ------------------------------- 弹窗：信用卡 ------------------------------- */
