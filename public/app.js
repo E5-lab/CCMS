@@ -658,11 +658,14 @@ function openCardModal(id) {
       </div>
       <div class="field"><label>颜色标签</label><select id="f_color">${colors}</select></div>
       <div class="field">
-        <label>卡面图片</label>
+        <label>卡面图片（本地上传 或 图床链接，二选一）</label>
         ${preview}
         <div class="file-row" style="margin-top:8px">
           <input id="f_image" type="file" accept="image/*">
           <button class="btn sm" id="f_imgclear" type="button">清除</button>
+        </div>
+        <div style="margin-top:8px">
+          <input id="f_imgurl" placeholder="或粘贴图床图片链接（https://...）" value="${c && c.image && /^https?:\/\//.test(c.image) ? esc(c.image) : ''}" style="width:100%">
         </div>
       </div>
       <div class="field">
@@ -690,17 +693,35 @@ function openCardModal(id) {
     const reader = new FileReader();
     reader.onload = () => {
       imgData = reader.result;
+      const urlInput = document.getElementById('f_imgurl');
+      if (urlInput) urlInput.value = '';
       const pv = document.querySelector('.img-preview');
       pv.style.backgroundImage = `url('${imgData}')`;
       pv.textContent = '';
     };
     reader.readAsDataURL(file);
   };
+  const imgUrlInput = document.getElementById('f_imgurl');
+  if (imgUrlInput) imgUrlInput.oninput = () => {
+    const v = imgUrlInput.value.trim();
+    if (!v) return;
+    if (!/^https?:\/\//.test(v)) return;
+    imgData = v;
+    const fileInput = document.getElementById('f_image');
+    if (fileInput) fileInput.value = '';
+    const pv = document.querySelector('.img-preview');
+    pv.style.backgroundImage = `url('${v}')`;
+    pv.textContent = '';
+  };
   document.getElementById('f_imgclear').onclick = () => {
     imgData = '';
     const pv = document.querySelector('.img-preview');
     pv.style.backgroundImage = '';
     pv.textContent = '上传卡面图片（可选）';
+    const urlInput = document.getElementById('f_imgurl');
+    if (urlInput) urlInput.value = '';
+    const fileInput = document.getElementById('f_image');
+    if (fileInput) fileInput.value = '';
   };
   document.getElementById('f_closed').onchange = e => {
     document.getElementById('closedAtWrap').style.display = e.target.checked ? 'block' : 'none';
@@ -873,9 +894,29 @@ document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => { view = b
 document.getElementById('seedBtn').onclick = seedSample;
 document.getElementById('resetBtn').onclick = resetAll;
 
-(async function init() {
+// 云端模式下：窗口重新聚焦 / 页面重新可见时，自动拉取云端最新数据（多设备实时同步）
+let pullTimer = null;
+async function autoPull() {
+  if (!Store.isCloud) return;
   try {
     const s = await Store.load();
+    cards = s.cards; bills = s.bills;
+    render();
+  } catch (e) { /* 静默失败，下次聚焦再试 */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) autoPull(); });
+window.addEventListener('focus', () => { clearTimeout(pullTimer); pullTimer = setTimeout(autoPull, 800); });
+
+// 注册 Service Worker（PWA 安装 / 离线可用）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => { /* 忽略：本地 file:// 等环境不支持 */ });
+  });
+}
+
+(async function init() {
+  try {
+    const s = await Store.load(); // 登录态下(isCloud)自动拉取云端；否则读本地
     cards = s.cards; bills = s.bills;
   } catch (e) {
     console.error(e);
