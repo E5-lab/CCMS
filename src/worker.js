@@ -112,10 +112,10 @@ async function getDelta(db, owner, since) {
     const b = await db.prepare('SELECT * FROM bills WHERE owner=? AND deleted=0').bind(owner).all();
     return { cards: norm(c.results), bills: norm(b.results), tombCards: [], tombBills: [], cursor };
   }
-  const c = await db.prepare('SELECT * FROM cards WHERE owner=? AND updated_at > ?').bind(owner, since).all();
-  const b = await db.prepare('SELECT * FROM bills WHERE owner=? AND updated_at > ?').bind(owner, since).all();
-  const tc = await db.prepare('SELECT id FROM cards WHERE owner=? AND deleted=1 AND updated_at > ?').bind(owner, since).all();
-  const tb = await db.prepare('SELECT id FROM bills WHERE owner=? AND deleted=1 AND updated_at > ?').bind(owner, since).all();
+  const c = await db.prepare('SELECT * FROM cards WHERE owner=? AND updatedAt > ?').bind(owner, since).all();
+  const b = await db.prepare('SELECT * FROM bills WHERE owner=? AND updatedAt > ?').bind(owner, since).all();
+  const tc = await db.prepare('SELECT id FROM cards WHERE owner=? AND deleted=1 AND updatedAt > ?').bind(owner, since).all();
+  const tb = await db.prepare('SELECT id FROM bills WHERE owner=? AND deleted=1 AND updatedAt > ?').bind(owner, since).all();
   return {
     cards: norm(c.results), bills: norm(b.results),
     tombCards: (tc.results || []).map(r => r.id), tombBills: (tb.results || []).map(r => r.id), cursor,
@@ -125,9 +125,9 @@ async function getDelta(db, owner, since) {
 // LWW：仅当传入记录更新时间 >= 现有才覆盖；删除转为墓碑（deleted=1）
 async function applyUpserts(db, owner, kind, rows, now) {
   for (const r of rows) {
-    const existing = await db.prepare(`SELECT updated_at FROM ${kind} WHERE id=? AND owner=?`).bind(r.id, owner).first();
+    const existing = await db.prepare(`SELECT updatedAt FROM ${kind} WHERE id=? AND owner=?`).bind(r.id, owner).first();
     const ru = Number(r.updatedAt) || 0;
-    if (existing && Number(existing.updated_at) > ru) continue; // 服务端更新则跳过
+    if (existing && Number(existing.updatedAt) > ru) continue; // 服务端更新则跳过
     if (kind === 'cards') {
       await db.prepare(`INSERT OR REPLACE INTO cards
         (id, owner, name, bank, last4, billingDay, dueDay, gracePeriod, \`limit\`, color, image, closed, closedAt, points, annual_fee, annual_fee_date, deleted, updatedAt)
@@ -144,7 +144,7 @@ async function applyUpserts(db, owner, kind, rows, now) {
 }
 async function applyDeletes(db, owner, table, ids, now) {
   for (const id of ids) {
-    await db.prepare(`UPDATE ${table} SET deleted=1, updated_at=? WHERE id=? AND owner=?`).bind(now, id, owner).run();
+    await db.prepare(`UPDATE ${table} SET deleted=1, updatedAt=? WHERE id=? AND owner=?`).bind(now, id, owner).run();
   }
 }
 
