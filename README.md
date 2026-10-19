@@ -56,6 +56,8 @@ CCMS 是纯静态站点，推荐用 **Cloudflare Pages** 一键部署，**完全
 
 之后每次 `git push` 到 GitHub，Cloudflare 会自动重新部署。
 
+> 若你用的是 **Workers（Git 集成构建）** 部署：仓库的 `wrangler.toml` 已配置 `not_found_handling = "single-page-application"`（SPA 回退），部署即用，**无需任何额外文件**。
+
 ### 方式二：直接上传文件夹（连 GitHub 都不要）
 1. Cloudflare 后台 → **Workers & Pages** → **Create** → **Pages** → **Upload assets**。
 2. 把本仓库的 `public` 文件夹拖进去，起个名字（如 `ccms`），点部署。
