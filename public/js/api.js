@@ -34,6 +34,12 @@ const Auth = {
     if (!r.ok) throw new Error(await apiError(r, '云端保存昵称失败'));
     return r.json();
   },
+  // 拉取当前账号信息（邮箱 + 云端昵称），用于跨设备同步昵称
+  async me() {
+    const r = await fetch('/api/me', { headers: { 'authorization': 'Bearer ' + Store.session } });
+    if (!r.ok) throw new Error(await apiError(r, '获取账号信息失败'));
+    return r.json();
+  },
 };
 
 /* ----------------------------- 同步层（Sync：增量 + 墓碑 + LWW） ----------------------------- */

@@ -7,7 +7,8 @@
  *   POST /api/register  注册 -> { token, email }
  *   POST /api/login     登录 -> { token, email }
  *   POST /api/logout    注销当前会话
- *   GET  /api/me        返回当前登录邮箱
+ *   GET  /api/me        返回当前登录邮箱与昵称
+ *   PUT  /api/me        更新昵称（跨设备同步）
  *
  * 数据接口（需鉴权，记录级同步）：
  *   GET  /api/state?since=TS   增量/全量拉取（含墓碑）
@@ -63,7 +64,7 @@ async function initDb(db) {
   if (dbInitPromise) return dbInitPromise;
   dbInitPromise = (async () => {
     await db.batch([
-      db.prepare(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pass_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at INTEGER NOT NULL)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pass_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at INTEGER NOT NULL, nickname TEXT)`),
       db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at INTEGER NOT NULL)`),
       db.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, bank TEXT, last4 TEXT, billingDay INTEGER, dueDay INTEGER, gracePeriod INTEGER, \`limit\` REAL, color TEXT, image TEXT, closed INTEGER NOT NULL DEFAULT 0, closedAt TEXT, points INTEGER, annual_fee INTEGER, annual_fee_date TEXT, annual_fee_type TEXT DEFAULT 'amount', annual_fee_swipe INTEGER, annual_fee_points INTEGER, deleted INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`),
       db.prepare(`CREATE TABLE IF NOT EXISTS bills (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', cardId TEXT NOT NULL, period TEXT NOT NULL, statement REAL, paid REAL, status TEXT, dueDate TEXT, note TEXT, deleted INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`),
@@ -74,11 +75,12 @@ async function initDb(db) {
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`),
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)`),
     ]);
-    // 兼容已有数据库：补充新列（年费类型/刷卡次数/积分兑换）。逐条执行并吞掉“列已存在”的错误。
+    // 兼容已有数据库：补充新列（年费类型/刷卡次数/积分兑换/昵称）。逐条执行并吞掉"列已存在"的错误。
     const alters = [
       `ALTER TABLE cards ADD COLUMN annual_fee_type TEXT DEFAULT 'amount'`,
       `ALTER TABLE cards ADD COLUMN annual_fee_swipe INTEGER`,
       `ALTER TABLE cards ADD COLUMN annual_fee_points INTEGER`,
+      `ALTER TABLE users ADD COLUMN nickname TEXT`,
     ];
     await Promise.all(alters.map(sql => db.prepare(sql).run().then(() => 1).catch(() => 0)));
   })();
@@ -90,7 +92,7 @@ async function getSessionUser(db, token) {
   const s = await db.prepare('SELECT user_id, expires_at FROM sessions WHERE token=?').bind(token).first();
   if (!s) return null;
   if (s.expires_at < Date.now()) { await db.prepare('DELETE FROM sessions WHERE token=?').bind(token).run(); return null; }
-  const u = await db.prepare('SELECT id, email FROM users WHERE id=?').bind(s.user_id).first();
+  const u = await db.prepare('SELECT id, email, nickname FROM users WHERE id=?').bind(s.user_id).first();
   return u || null;
 }
 async function createSession(db, userId) {
@@ -260,8 +262,9 @@ async function handleApi(request, env, url) {
     if (await db.prepare('SELECT id FROM users WHERE email=?').bind(email).first()) return json({ error: '该邮箱已注册，请直接登录' }, 409);
     const salt = randomHex(16); const pass_hash = await derive(password, salt);
     const id = randomHex(16);
-    await db.prepare('INSERT INTO users (id, email, pass_hash, salt, created_at) VALUES (?,?,?,?,?)').bind(id, email, pass_hash, salt, Date.now()).run();
-    return json({ token: await createSession(db, id), email });
+    const nickname = email.split('@')[0] || ''; // 默认昵称取邮箱前缀
+    await db.prepare('INSERT INTO users (id, email, pass_hash, salt, created_at, nickname) VALUES (?,?,?,?,?,?)').bind(id, email, pass_hash, salt, Date.now(), nickname).run();
+    return json({ token: await createSession(db, id), email, nickname });
   }
   if (p === '/api/login' && request.method === 'POST') {
     if (!db) return json({ error: 'D1_NOT_CONFIGURED', message: '云端存储未启用：请在 Cloudflare 后台为该 Worker 绑定 D1 数据库（变量名 DB）。绑定并重新部署后，首次访问会自动建表，无需手动执行任何 SQL。' }, 503);
@@ -271,7 +274,7 @@ async function handleApi(request, env, url) {
     const u = await db.prepare('SELECT id, email, pass_hash, salt FROM users WHERE email=?').bind(email).first();
     if (!u) return json({ error: '账号或密码错误' }, 401);
     if ((await derive(password, u.salt)) !== u.pass_hash) return json({ error: '账号或密码错误' }, 401);
-    return json({ token: await createSession(db, u.id), email: u.email });
+    return json({ token: await createSession(db, u.id), email: u.email, nickname: u.nickname || '' });
   }
   if (p === '/api/logout' && request.method === 'POST') {
     const auth = request.headers.get('authorization') || '';
@@ -281,7 +284,14 @@ async function handleApi(request, env, url) {
   }
   if (p === '/api/me' && request.method === 'GET') {
     const r = await requireUser(request, env); if (r.error) return r.error;
-    return json({ email: r.user.email });
+    return json({ email: r.user.email, nickname: r.user.nickname || '' });
+  }
+  if (p === '/api/me' && request.method === 'PUT') {
+    const r = await requireUser(request, env); if (r.error) return r.error;
+    const b = await readBody(request);
+    const nickname = String(b.nickname || '').slice(0, 32);
+    await db.prepare('UPDATE users SET nickname = ? WHERE id = ?').bind(nickname, r.user.id).run();
+    return json({ ok: true, nickname });
   }
 
   if (p === '/api/push/subscribe' && request.method === 'POST') {

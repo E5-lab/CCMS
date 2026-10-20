@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS users (
   email      TEXT UNIQUE NOT NULL,
   pass_hash  TEXT NOT NULL,
   salt       TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  nickname   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

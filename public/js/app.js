@@ -47,6 +47,10 @@ async function autoPull() {
   try {
     const s = await Store.load();
     cards = s.cards; bills = s.bills;
+    try {
+      const me = await Auth.me();
+      if (me && me.nickname) setNickname(me.nickname);
+    } catch (e) { /* 昵称同步失败不阻断 */ }
     render();
   } catch (e) { /* 静默失败，下次聚焦再试 */ }
 }
@@ -66,6 +70,13 @@ if ('serviceWorker' in navigator) {
   try {
     const s = await Store.load(); // 登录态下(isCloud)自动拉取云端；否则读本地
     cards = s.cards; bills = s.bills;
+    // 云端模式下同步昵称（跨设备）。仅当云端有非空昵称时覆盖本地，避免空值覆盖。
+    if (Store.isCloud) {
+      try {
+        const me = await Auth.me();
+        if (me && me.nickname) setNickname(me.nickname);
+      } catch (e) { /* 昵称同步失败不阻断加载 */ }
+    }
   } catch (e) {
     console.error(e);
     alert('数据加载失败：' + e.message + '\n（若已启用云端账户，请确认已部署 Worker 与 D1）');
