@@ -401,3 +401,24 @@ select:focus, input:focus { outline: 2px solid var(--brand-soft); border-color: 
   .topbar h1 { font-size: 18px; }
   .row2 { grid-template-columns: 1fr; }
 }
+
+/* 分段切换（信用卡 / 账单 模块内的功能分区） */
+.seg { display: inline-flex; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
+.seg button { border: none; background: transparent; color: var(--ink-soft); padding: 7px 14px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+.seg button.active { background: var(--brand); color: #fff; font-weight: 600; }
+
+/* 权益专区 */
+.benefit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.benefit-card { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); background: var(--panel); }
+.bc-head { padding: 16px; color: #fff; min-height: 86px; display: flex; flex-direction: column; justify-content: center; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.bc-bank { font-weight: 700; font-size: 14px; }
+.bc-name { font-size: 13px; opacity: .92; margin-top: 4px; }
+.bc-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.bc-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.bc-row > span { color: var(--ink-soft); }
+.bc-row > b { text-align: right; }
+.bc-benefit { white-space: pre-wrap; line-height: 1.5; }
+
+/* textarea 与 input 统一外观 */
+textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); max-width: 100%; width: 100%; resize: vertical; }
+.field textarea { width: 100%; }

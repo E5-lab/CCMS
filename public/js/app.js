@@ -8,14 +8,16 @@
 let cards = [];
 let bills = [];
 let view = 'dashboard';
-let focusCardId = ''; // 概览页点击卡面后，在月度账单中聚焦该卡
+let focusCardId = ''; // 概览页点击卡面后，在账单月度视图中聚焦该卡
+let billPartition = 'monthly'; // 账单模块内的分区：monthly | annual
+let cardPartition = 'active';  // 信用卡模块内的分区：active | closed
 const now = new Date();
 const sel = { year: now.getFullYear(), month: now.getMonth() + 1 };
 
 /* ------------------------------- 导航 ------------------------------- */
 document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => {
   view = b.dataset.view;
-  if (view === 'monthly') focusCardId = ''; // 通过导航进入月度账单时取消聚焦
+  if (view === 'bills') focusCardId = ''; // 通过导航进入账单时取消聚焦
   render();
 });
 

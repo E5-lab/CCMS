@@ -41,6 +41,8 @@ function openCardModal(id) {
       <div class="field" id="feeSwipeWrap" style="display:${ft === 'swipe' ? 'block' : 'none'}"><label>${t('feeSwipe')}</label><input id="f_feeswipe" type="number" min="0" value="${esc(c ? c.annual_fee_swipe : '')}" placeholder="如 6"></div>
       <div class="field" id="feePointsWrap" style="display:${ft === 'points' ? 'block' : 'none'}"><label>${t('feePoints')}</label><input id="f_feepoints" type="number" min="0" value="${esc(c ? c.annual_fee_points : '')}" placeholder="如 100000"></div>
       <div class="field"><label>${t('feeDate')}</label><input id="f_feedate" type="date" value="${esc(c ? c.annual_fee_date : '')}"></div>
+      <div class="field"><label>${t('loungeCount')}</label><input id="f_lounge" type="number" min="0" value="${esc(c ? c.lounge_count : '')}" placeholder="如 6"></div>
+      <div class="field"><label>${t('benefitsInfo')}</label><textarea id="f_benefits" rows="2" placeholder="如 机场贵宾厅、接送机、积分加倍等">${esc(c ? c.benefits : '')}</textarea></div>
       <div class="field"><label>${t('colorTag')}</label><div class="color-row"><select id="f_color">${colors}</select><span class="color-preview" id="colorPrev" style="background:${esc(c ? c.color || '#4f46e5' : '#4f46e5')}"></span><span class="muted">${t('colorPreview')}</span></div></div>
       <div class="field">
         <label>卡面图片（本地上传 或 图床链接，二选一）</label>
@@ -145,6 +147,8 @@ function openCardModal(id) {
       annual_fee_swipe: document.getElementById('f_feeswipe').value || null,
       annual_fee_points: document.getElementById('f_feepoints').value || null,
       annual_fee_date: document.getElementById('f_feedate').value || '',
+      lounge_count: document.getElementById('f_lounge').value || null,
+      benefits: document.getElementById('f_benefits').value.trim(),
       color: document.getElementById('f_color').value,
       image: imgData,
       closed,
@@ -336,7 +340,7 @@ function openCsvModal() {
       if (x.warn.length) { skipped++; continue; }
       let card = (x.match && x.match !== 'NEW') ? x.match : nameMap[x.cardName.toLowerCase()];
       if (!card) {
-        card = { id: uid(), name: x.cardName, bank: '', last4: '', billingDay: 1, dueDay: 25, gracePeriod: 50, limit: 0, color: PALETTE[cards.length % PALETTE.length], image: '', closed: false, closedAt: '', points: null, annual_fee: null, annual_fee_date: '', annual_fee_type: 'amount', annual_fee_swipe: null, annual_fee_points: null, updatedAt: Date.now() };
+        card = { id: uid(), name: x.cardName, bank: '', last4: '', billingDay: 1, dueDay: 25, gracePeriod: 50, limit: 0, color: PALETTE[cards.length % PALETTE.length], image: '', closed: false, closedAt: '', points: null, annual_fee: null, annual_fee_date: '', annual_fee_type: 'amount', annual_fee_swipe: null, annual_fee_points: null, lounge_count: null, benefits: '', updatedAt: Date.now() };
         cards.push(card); nameMap[x.cardName.toLowerCase()] = card; createdCards++;
       }
       bills.push({ id: uid(), cardId: card.id, period: x.period, statement: x.statement, paid: x.paid, status: x.status, dueDate: x.dueDate, note: x.note, updatedAt: Date.now() });

@@ -5,12 +5,12 @@
  * ========================================================================= */
 
 const TITLES = {
-  dashboard: t('overview'), cards: t('cards'), closed: t('closed'), monthly: t('monthly'),
-  annual: t('annual'), history: t('history'), settings: t('settings'),
+  dashboard: t('overview'), cards: t('cards'), bills: t('billsNav'),
+  benefits: t('benefitsNav'), settings: t('settings'),
 };
 
 function render() {
-  const navText = { dashboard: t('overview'), cards: t('cards'), closed: t('closed'), monthly: t('monthly'), annual: t('annual'), history: t('history'), settings: t('settings') };
+  const navText = { dashboard: t('overview'), cards: t('cards'), bills: t('billsNav'), benefits: t('benefitsNav'), settings: t('settings') };
   document.querySelectorAll('.nav-item').forEach(b => { b.classList.toggle('active', b.dataset.view === view); b.textContent = navText[b.dataset.view]; });
   document.getElementById('pageTitle').textContent = navText[view];
   renderAccountArea();   // 右上角账户区（主流站点布局）
@@ -20,10 +20,8 @@ function render() {
 
   if (view === 'dashboard') root.innerHTML = renderDashboard();
   else if (view === 'cards') { root.innerHTML = renderCards(); renderCardsActions(actions); }
-  else if (view === 'closed') root.innerHTML = renderClosed();
-  else if (view === 'monthly') { root.innerHTML = renderMonthly(); renderMonthlyControls(actions); }
-  else if (view === 'annual') { root.innerHTML = renderAnnual(); renderYearControls(actions); }
-  else if (view === 'history') root.innerHTML = renderHistory();
+  else if (view === 'bills') { root.innerHTML = renderBills(); renderBillsActions(actions); }
+  else if (view === 'benefits') root.innerHTML = renderBenefits();
   else if (view === 'settings') root.innerHTML = renderSettings();
 
   bindViewEvents();
@@ -62,12 +60,6 @@ function renderDashboard() {
       <div class="value">${s.value}</div>
       <div class="sub">${s.sub}</div>
     </div>`).join('') + `</div>`;
-
-  // 我的信用卡（卡面墙，点击跳转）
-  if (act.length) {
-    html += `<div class="panel"><div class="panel-title">${t('myCards')} · ${t('tapCardHint')}</div>
-      <div class="card-list">${act.map(c => ccCardHtml(c, true)).join('')}</div></div>`;
-  }
 
   html += `<div class="panel"><div class="panel-title">${t('recentDue')}</div>`;
   if (upcoming.length === 0) {
@@ -117,19 +109,28 @@ function ccCardHtml(c, navigable) {
   </div>`;
 }
 
+// 信用卡模块内的功能分区：有效卡 / 已注销（已注销是信用卡模块的子集）
+function cardsSeg() {
+  return `<div class="seg">
+    <button data-cardtab="active" class="${cardPartition === 'active' ? 'active' : ''}">${t('cardsActive')}</button>
+    <button data-cardtab="closed" class="${cardPartition === 'closed' ? 'active' : ''}">${t('cardsClosed')}</button>
+  </div>`;
+}
+
 function renderCards() {
+  if (cardPartition === 'closed') return cardsSeg() + renderClosedCards();
   const act = activeCards();
   if (act.length === 0) {
-    return `<div class="empty"><div class="big">💳</div>还没有信用卡，点击右上角「新增信用卡」开始</div>`;
+    return cardsSeg() + `<div class="empty"><div class="big">💳</div>还没有信用卡，点击右上角「新增信用卡」开始</div>`;
   }
-  return `<div class="card-list">${act.map(ccCardHtml).join('')}</div>`;
+  return cardsSeg() + `<div class="card-list">${act.map(ccCardHtml).join('')}</div>`;
 }
 function renderCardsActions(actions) {
   actions.innerHTML = `<button class="btn primary" id="addCardBtn">${t('addCard')}</button>`;
 }
 
-/* ------------------------------- 已注销 ------------------------------- */
-function renderClosed() {
+/* ------------------------------- 已注销（信用卡模块子分区） ------------------------------- */
+function renderClosedCards() {
   const closed = cards.filter(c => c.closed);
   if (closed.length === 0) {
     return `<div class="empty"><div class="big">🗂️</div>暂无已注销的信用卡。注销的卡片会出现在这里，保留你的玩卡经历。</div>`;
@@ -154,6 +155,21 @@ function renderClosed() {
   }).join('');
   return `<div class="panel"><div class="panel-title">已注销信用卡（${closed.length}）</div>
     <div class="card-list">${items}</div></div>`;
+}
+
+/* ------------------------------- 账单（月度 / 年度 同属一个模块） ------------------------------- */
+function billsSeg() {
+  return `<div class="seg">
+    <button data-billtab="monthly" class="${billPartition === 'monthly' ? 'active' : ''}">${t('tabMonthly')}</button>
+    <button data-billtab="annual" class="${billPartition === 'annual' ? 'active' : ''}">${t('tabAnnual')}</button>
+  </div>`;
+}
+function renderBills() {
+  return billPartition === 'annual' ? billsSeg() + renderAnnual() : billsSeg() + renderMonthly();
+}
+function renderBillsActions(actions) {
+  if (billPartition === 'annual') renderYearControls(actions);
+  else renderMonthlyControls(actions);
 }
 
 /* ------------------------------- 月度账单 ------------------------------- */
@@ -216,7 +232,7 @@ function renderMonthly() {
   </div>`;
 }
 
-/* ------------------------------- 年度汇总 ------------------------------- */
+/* ------------------------------- 年度汇总（含历年对比，替代原「历年汇总」） ------------------------------- */
 function renderYearControls(actions) {
   actions.innerHTML = `<div class="controls"><select id="yearSel2">${yearOptions(sel.year)}</select></div>`;
 }
@@ -256,29 +272,42 @@ function renderAnnual() {
 
   html += `<div class="panel"><div class="panel-title">${sel.year} 年月度走势（账单金额）</div>
     ${barChart(monthly, ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'], money)}</div>`;
+
+  // 历年对比（合并原「历年汇总」功能，避免重复模块）
+  const years = [...new Set(bills.map(b => b.period.slice(0, 4)))].sort();
+  if (years.length > 1) {
+    const hist = years.map(y => {
+      const hb = bills.filter(b => b.period.startsWith(y));
+      return { y, total: hb.reduce((s, b) => s + (Number(b.statement) || 0), 0) };
+    });
+    html += `<div class="panel"><div class="panel-title">历年账单总额对比</div>
+      ${barChart(hist.map(d => d.total), hist.map(d => d.y + '年'), money)}</div>`;
+  }
   return html;
 }
 
-/* ------------------------------- 历年汇总 ------------------------------- */
-function renderHistory() {
-  const years = [...new Set(bills.map(b => b.period.slice(0, 4)))].sort();
-  if (years.length === 0) {
-    return `<div class="empty"><div class="big">🗂️</div>暂无历史账单数据</div>`;
+/* ------------------------------- 权益专区（年费 / 机场贵宾厅 / 权益说明） ------------------------------- */
+function renderBenefits() {
+  const act = activeCards();
+  if (act.length === 0) {
+    return `<div class="empty"><div class="big">🎁</div>还没有有效信用卡，先在「信用卡」中添加卡片吧。</div>`;
   }
-  const data = years.map(y => {
-    const yb = bills.filter(b => b.period.startsWith(y));
-    const total = yb.reduce((s, b) => s + (Number(b.statement) || 0), 0);
-    return { y, total, count: yb.length, cardsUsed: new Set(yb.map(b => b.cardId)).size };
-  });
-  const rows = data.map(d => `<tr>
-    <td>${d.y} 年</td><td>${money(d.total)}</td><td>${d.count} 笔</td><td>${d.cardsUsed} 张</td>
-  </tr>`).join('');
-  const totals = data.map(d => d.total);
-
-  return `<div class="panel"><div class="panel-title">历年账单总览</div>
-    <table><thead><tr><th>年份</th><th>年度账单总额</th><th>账单笔数</th><th>涉及卡片</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>
-    <div class="panel"><div class="panel-title">历年对比</div>${barChart(totals, data.map(d => d.y + '年'), money)}</div>`;
+  const cardsHtml = act.map(c => `
+    <div class="benefit-card">
+      <div class="bc-head" style="${cardFaceStyle(c)}">
+        <div class="bc-bank">${esc(c.bank || '未填银行')}</div>
+        <div class="bc-name">${esc(c.name)}</div>
+      </div>
+      <div class="bc-body">
+        <div class="bc-row"><span>${t('feeLabel')}</span><b>${esc(feeText(c) || '—')}</b></div>
+        <div class="bc-row"><span>${t('loungeLabel')}</span><b>${c.lounge_count != null ? esc(c.lounge_count) + ' 次' : '—'}</b></div>
+        <div class="bc-row"><span>${t('benefitsInfo')}</span><b class="bc-benefit">${esc(c.benefits || t('noBenefit'))}</b></div>
+      </div>
+    </div>`).join('');
+  return `<div class="panel">
+    <div class="panel-title">${t('benefitsNav')} · ${t('benefitsHint')}</div>
+    <div class="benefit-grid">${cardsHtml}</div>
+  </div>`;
 }
 
 /* ------------------------------- 设置（账户 / 同步） ------------------------------- */
@@ -437,6 +466,16 @@ function bindViewEvents() {
   if (yearSel) yearSel.onchange = e => { sel.year = +e.target.value; render(); };
   if (monthSel) monthSel.onchange = e => { sel.month = +e.target.value; render(); };
   if (yearSel2) yearSel2.onchange = e => { sel.year = +e.target.value; render(); };
+
+  // 信用卡模块分区：有效 / 已注销
+  document.querySelectorAll('[data-cardtab]').forEach(b => b.onclick = () => {
+    cardPartition = b.dataset.cardtab; render();
+  });
+  // 账单模块分区：月度 / 年度
+  document.querySelectorAll('[data-billtab]').forEach(b => b.onclick = () => {
+    billPartition = b.dataset.billtab; render();
+  });
+
   const backCardsBtn = document.getElementById('backCardsBtn');
   if (backCardsBtn) backCardsBtn.onclick = () => { focusCardId = ''; render(); };
 
@@ -494,6 +533,7 @@ function bindViewEvents() {
     try {
       const d = await Auth.register(email, password);
       Store.session = d.token; Store.email = d.email;
+      if (d.nickname) setNickname(d.nickname);
       localStorage.setItem(LS.session, d.token); localStorage.setItem(LS.email, d.email);
       Store.mode = 'cloud'; localStorage.setItem(LS.mode, 'cloud');
       const s = await Store.save(cards, bills); // 本地数据上传到云端
@@ -510,6 +550,7 @@ function bindViewEvents() {
     try {
       const d = await Auth.login(email, password);
       Store.session = d.token; Store.email = d.email;
+      if (d.nickname) setNickname(d.nickname);
       localStorage.setItem(LS.session, d.token); localStorage.setItem(LS.email, d.email);
       Store.mode = 'cloud'; localStorage.setItem(LS.mode, 'cloud');
       const s = await Store.load(); cards = s.cards; bills = s.bills; // 用云端数据
@@ -602,13 +643,26 @@ function bindViewEvents() {
     };
   }
 
-  // 设置页：昵称保存
+  // 设置页：昵称保存（云端账户同步到服务端，本地始终保存）
   const saveNickBtn = document.getElementById('saveNickBtn');
-  if (saveNickBtn) saveNickBtn.onclick = () => {
+  if (saveNickBtn) saveNickBtn.onclick = async () => {
     const v = document.getElementById('nickInput').value.trim();
-    setNickname(v);
-    renderAccountArea();
-    alert('昵称已保存。');
+    if (Store.isCloud) {
+      try {
+        await Auth.saveNick(v);
+        setNickname(v);
+        renderAccountArea();
+        alert('昵称已保存，并同步到云端账户（其他设备登录后自动同步）。');
+      } catch (e) {
+        setNickname(v); // 云端失败仍保留本地，避免丢失
+        renderAccountArea();
+        alert('已保存到本地；云端同步暂未生效：' + e.message + '\n（需 Worker 支持昵称接口）');
+      }
+    } else {
+      setNickname(v);
+      renderAccountArea();
+      alert('昵称已保存到本地。');
+    }
   };
   // 设置页：主题切换
   document.querySelectorAll('input[name="theme"]').forEach(r => {
@@ -623,7 +677,7 @@ function bindViewEvents() {
     el.onclick = (e) => {
       if (e.target.closest('.cc-actions')) return; // 操作按钮不触发跳转
       const id = el.dataset.goCard;
-      if (view === 'dashboard') { focusCardId = id; view = 'monthly'; render(); }
+      if (view === 'dashboard') { focusCardId = id; view = 'bills'; billPartition = 'monthly'; render(); }
       else openCardModal(id);
     };
   });

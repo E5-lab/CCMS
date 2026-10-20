@@ -64,6 +64,7 @@ function validateBackup(d) {
     points: Number(c.points) || null, annual_fee: Number(c.annual_fee) || null, annual_fee_date: String(c.annual_fee_date || ''),
     annual_fee_type: c.annual_fee_type === 'swipe' || c.annual_fee_type === 'points' ? c.annual_fee_type : 'amount',
     annual_fee_swipe: Number(c.annual_fee_swipe) || null, annual_fee_points: Number(c.annual_fee_points) || null,
+    lounge_count: Number(c.lounge_count) || null, benefits: String(c.benefits || ''),
     updatedAt: Number(c.updatedAt) || Date.now(),
   });
   const cleanBill = (b) => ({
@@ -186,6 +187,10 @@ const I18N = {
     billOf: '账单月份', stmtAmt: '本期账单金额', paidAmt: '已还金额', billStatus: '还款状态', dueDate: '还款日', note: '备注',
     newBill: '录入账单', editBill: '编辑账单', auto: '自动',
     feeTypeAmount: '固定金额', feeTypeSwipe: '刷卡免年费', feeTypePoints: '积分兑换免年费',
+    billsNav: '账单', benefitsNav: '权益专区', tabMonthly: '月度', tabAnnual: '年度',
+    cardsActive: '有效卡', cardsClosed: '已注销', loungeCount: '机场贵宾厅次数',
+    benefitsInfo: '权益说明', benefitsHint: '查看每张有效卡的年费与专属权益',
+    feeLabel: '年费', loungeLabel: '机场贵宾厅', noBenefit: '未填写权益说明',
   },
   en: {
     overview: 'Overview', cards: 'Cards', closed: 'Closed', monthly: 'Monthly', annual: 'Annual', history: 'History', settings: 'Settings',
@@ -208,6 +213,10 @@ const I18N = {
     billOf: 'Billing Month', stmtAmt: 'Statement', paidAmt: 'Paid', billStatus: 'Status', dueDate: 'Due Date', note: 'Note',
     newBill: 'Add Bill', editBill: 'Edit Bill', auto: 'Auto',
     feeTypeAmount: 'Fixed Amount', feeTypeSwipe: 'Waived by Swipes', feeTypePoints: 'Waived by Points',
+    billsNav: 'Bills', benefitsNav: 'Benefits', tabMonthly: 'Monthly', tabAnnual: 'Annual',
+    cardsActive: 'Active', cardsClosed: 'Closed', loungeCount: 'Airport Lounge Visits',
+    benefitsInfo: 'Benefits', benefitsHint: 'Annual fee & perks for each active card',
+    feeLabel: 'Annual Fee', loungeLabel: 'Lounge', noBenefit: 'No benefits noted',
   },
 };
 let lang = localStorage.getItem('ccms.lang') || 'zh';

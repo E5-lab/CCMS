@@ -28,6 +28,12 @@ const Auth = {
   async logout(session) {
     if (session) { try { await fetch('/api/logout', { method: 'POST', headers: { 'authorization': 'Bearer ' + session } }); } catch (e) {} }
   },
+  // 保存昵称到云端账户（需在 Worker 提供 PUT /api/me 支持；本地存储始终生效）
+  async saveNick(nickname) {
+    const r = await fetch('/api/me', { method: 'PUT', headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + Store.session }, body: JSON.stringify({ nickname }) });
+    if (!r.ok) throw new Error(await apiError(r, '云端保存昵称失败'));
+    return r.json();
+  },
 };
 
 /* ----------------------------- 同步层（Sync：增量 + 墓碑 + LWW） ----------------------------- */
