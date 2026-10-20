@@ -24,7 +24,7 @@ document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => {
 /* ------------------------------- 主题 / 语言 ------------------------------- */
 function updateThemeBtn() {
   const btn = document.getElementById('themeBtn');
-  if (btn) btn.textContent = getTheme() === 'dark' ? '☀️' : '🌙';
+  if (btn) btn.innerHTML = svgIcon(getTheme() === 'dark' ? 'sun' : 'moon', '', 18);
 }
 function initThemeLang() {
   setTheme(getTheme());

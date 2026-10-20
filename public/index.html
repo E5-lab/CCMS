@@ -16,18 +16,21 @@
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-logo">💳</span>
-        <span class="brand-name">CCMS</span>
+        <span class="brand-logo" id="brandLogo"></span>
+        <span class="brand-text">
+          <span class="brand-name">CCMS</span>
+          <span class="brand-sub">信用卡账单管理</span>
+        </span>
       </div>
       <nav class="nav">
-        <button class="nav-item active" data-view="dashboard">概览</button>
-        <button class="nav-item" data-view="cards">信用卡</button>
-        <button class="nav-item" data-view="bills">账单</button>
-        <button class="nav-item" data-view="benefits">权益专区</button>
-        <button class="nav-item" data-view="settings">设置</button>
+        <button class="nav-item active" data-view="dashboard"><span class="nav-ico"></span><span class="nav-label">概览</span></button>
+        <button class="nav-item" data-view="cards"><span class="nav-ico"></span><span class="nav-label">信用卡</span></button>
+        <button class="nav-item" data-view="bills"><span class="nav-ico"></span><span class="nav-label">账单</span></button>
+        <button class="nav-item" data-view="benefits"><span class="nav-ico"></span><span class="nav-label">权益专区</span></button>
+        <button class="nav-item" data-view="settings"><span class="nav-ico"></span><span class="nav-label">设置</span></button>
       </nav>
       <div class="sidebar-foot">
-        <div id="syncState" class="sync-state">本地存储</div>
+        <div class="sync-pill" id="syncPill"><span class="sync-dot"></span><span id="syncState">本地存储</span></div>
       </div>
     </aside>
 
@@ -36,8 +39,8 @@
         <h1 id="pageTitle">概览</h1>
         <div id="topActions" class="top-actions"></div>
         <div class="topbar-right">
-          <button id="themeBtn" class="icon-btn" title="切换主题" aria-label="切换主题">🌙</button>
-          <select id="langSel" class="lang-sel" title="语言" aria-label="语言" style="width:auto;padding:6px 8px"></select>
+          <button id="themeBtn" class="icon-btn" title="切换主题" aria-label="切换主题"></button>
+          <select id="langSel" class="lang-sel" title="语言" aria-label="语言"></select>
           <div id="accountArea" class="account-area"></div>
         </div>
       </header>

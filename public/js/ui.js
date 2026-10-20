@@ -9,9 +9,21 @@ const TITLES = {
   benefits: t('benefitsNav'), settings: t('settings'),
 };
 
+// 统一空状态：图标 + 说明文字（避免各处硬编码 emoji）
+function emptyState(icon, text) {
+  return `<div class="empty"><span class="empty-ico">${svgIcon(icon, '', 22)}</span><div class="empty-text">${text}</div></div>`;
+}
+
 function render() {
   const navText = { dashboard: t('overview'), cards: t('cards'), bills: t('billsNav'), benefits: t('benefitsNav'), settings: t('settings') };
-  document.querySelectorAll('.nav-item').forEach(b => { b.classList.toggle('active', b.dataset.view === view); b.textContent = navText[b.dataset.view]; });
+  document.querySelectorAll('.nav-item').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === view);
+    // 只更新标签文本，避免覆盖图标（图标仅在首次渲染时注入一次）
+    const lab = b.querySelector('.nav-label'); if (lab) lab.textContent = navText[b.dataset.view];
+    const ico = b.querySelector('.nav-ico'); if (ico && !ico.firstChild) ico.innerHTML = svgIcon(b.dataset.view);
+  });
+  const brandLogo = document.getElementById('brandLogo');
+  if (brandLogo && !brandLogo.firstChild) brandLogo.innerHTML = svgIcon('cards');
   document.getElementById('pageTitle').textContent = navText[view];
   renderAccountArea();   // 右上角账户区（主流站点布局）
   const root = document.getElementById('viewRoot');
@@ -48,22 +60,25 @@ function renderDashboard() {
     .reduce((s, b) => s + (Number(b.statement) || 0), 0);
 
   const stats = [
-    { label: t('activeCards'), value: act.length, sub: `${t('totalLimit')} ${money(totalLimit)}` },
-    { label: `${sel.year}${t('monthBill')}`, value: money(monthTotal), sub: `${t('unpaid')} ${money(monthUnpaid)}` },
-    { label: `${sel.year}${t('yearBill')}`, value: money(yearTotal), sub: t('yearBill') },
-    { label: t('upcoming'), value: upcoming.length, sub: t('upcoming') },
+    { label: t('activeCards'), value: act.length, sub: `${t('totalLimit')} ${money(totalLimit)}`, icon: 'cards', tone: 'indigo' },
+    { label: `${sel.year}${t('monthBill')}`, value: money(monthTotal), sub: `${t('unpaid')} ${money(monthUnpaid)}`, icon: 'calendar', tone: 'violet' },
+    { label: `${sel.year}${t('yearBill')}`, value: money(yearTotal), sub: t('yearBill'), icon: 'trend', tone: 'teal' },
+    { label: t('upcoming'), value: upcoming.length, sub: t('upcoming'), icon: 'bell', tone: 'amber' },
   ];
 
   let html = `<div class="stat-grid">` + stats.map(s => `
-    <div class="stat-card">
-      <div class="label">${s.label}</div>
+    <div class="stat-card tone-${s.tone}">
+      <div class="stat-head">
+        <span class="stat-ico">${svgIcon(s.icon)}</span>
+        <span class="label">${s.label}</span>
+      </div>
       <div class="value">${s.value}</div>
       <div class="sub">${s.sub}</div>
     </div>`).join('') + `</div>`;
 
-  html += `<div class="panel"><div class="panel-title">${t('recentDue')}</div>`;
+  html += `<div class="panel"><div class="panel-head"><div class="panel-title">${t('recentDue')}</div><span class="panel-hint">${upcoming.length ? upcoming.length + ' 笔' : ''}</span></div>`;
   if (upcoming.length === 0) {
-    html += `<div class="empty"><div class="big">✅</div>${t('noDue')}</div>`;
+    html += emptyState('check', t('noDue'));
   } else {
     html += `<div class="table-wrap"><table><thead><tr><th>${t('cards')}</th><th>${t('billOf')}</th><th>${t('stmtAmt')}</th><th>已还</th><th>还款日</th><th>状态</th></tr></thead><tbody>`;
     html += upcoming.map(b => {
@@ -93,9 +108,10 @@ function ccCardHtml(c, navigable) {
   const fee = feeText(c);
   return `<div class="cc-card" style="${cardFaceStyle(c)}" data-go-card="${c.id}">
     <div class="cc-overlay"></div>
+    <div class="cc-chip"></div>
     <div class="cc-actions">
-      <button data-edit-card="${c.id}" title="编辑">✎</button>
-      <button data-del-card="${c.id}" title="删除">🗑</button>
+      <button data-edit-card="${c.id}" title="编辑" aria-label="编辑">${svgIcon('edit')}</button>
+      <button data-del-card="${c.id}" title="删除" aria-label="删除">${svgIcon('trash')}</button>
     </div>
     <div>
       <div class="cc-bank">${esc(c.bank || '未填银行')}</div>
@@ -112,8 +128,8 @@ function ccCardHtml(c, navigable) {
 // 信用卡模块内的功能分区：有效卡 / 已注销（已注销是信用卡模块的子集）
 function cardsSeg() {
   return `<div class="seg">
-    <button data-cardtab="active" class="${cardPartition === 'active' ? 'active' : ''}">${t('cardsActive')}</button>
-    <button data-cardtab="closed" class="${cardPartition === 'closed' ? 'active' : ''}">${t('cardsClosed')}</button>
+    <button data-cardtab="active" class="${cardPartition === 'active' ? 'active' : ''}">${svgIcon('cards', '', 15)}<span>${t('cardsActive')}</span></button>
+    <button data-cardtab="closed" class="${cardPartition === 'closed' ? 'active' : ''}">${svgIcon('archive', '', 15)}<span>${t('cardsClosed')}</span></button>
   </div>`;
 }
 
@@ -121,7 +137,7 @@ function renderCards() {
   if (cardPartition === 'closed') return cardsSeg() + renderClosedCards();
   const act = activeCards();
   if (act.length === 0) {
-    return cardsSeg() + `<div class="empty"><div class="big">💳</div>还没有信用卡，点击右上角「新增信用卡」开始</div>`;
+    return cardsSeg() + emptyState('cards', '还没有信用卡，点击右上角「新增信用卡」开始');
   }
   return cardsSeg() + `<div class="card-list">${act.map(ccCardHtml).join('')}</div>`;
 }
@@ -133,16 +149,17 @@ function renderCardsActions(actions) {
 function renderClosedCards() {
   const closed = cards.filter(c => c.closed);
   if (closed.length === 0) {
-    return `<div class="empty"><div class="big">🗂️</div>暂无已注销的信用卡。注销的卡片会出现在这里，保留你的玩卡经历。</div>`;
+    return emptyState('archive', '暂无已注销的信用卡。注销的卡片会出现在这里，保留你的玩卡经历。');
   }
   const items = closed.map(c => {
     const cnt = bills.filter(b => b.cardId === c.id).length;
     return `<div class="cc-card closed-card" style="${cardFaceStyle(c)}">
       <div class="cc-overlay"></div>
-      <div class="cc-actions">
-        <button data-restore-card="${c.id}" title="恢复">↩</button>
-        <button data-purge-card="${c.id}" title="彻底删除">🗑</button>
-      </div>
+    <div class="cc-chip"></div>
+    <div class="cc-actions">
+      <button data-restore-card="${c.id}" title="恢复" aria-label="恢复">${svgIcon('restore')}</button>
+      <button data-purge-card="${c.id}" title="彻底删除" aria-label="彻底删除">${svgIcon('trash')}</button>
+    </div>
       <div>
         <div class="cc-bank">${esc(c.bank || '未填银行')}</div>
         <div class="cc-num">•••• ${esc(c.last4 || '****')}</div>
@@ -160,8 +177,8 @@ function renderClosedCards() {
 /* ------------------------------- 账单（月度 / 年度 同属一个模块） ------------------------------- */
 function billsSeg() {
   return `<div class="seg">
-    <button data-billtab="monthly" class="${billPartition === 'monthly' ? 'active' : ''}">${t('tabMonthly')}</button>
-    <button data-billtab="annual" class="${billPartition === 'annual' ? 'active' : ''}">${t('tabAnnual')}</button>
+    <button data-billtab="monthly" class="${billPartition === 'monthly' ? 'active' : ''}">${svgIcon('calendar', '', 15)}<span>${t('tabMonthly')}</span></button>
+    <button data-billtab="annual" class="${billPartition === 'annual' ? 'active' : ''}">${svgIcon('chart', '', 15)}<span>${t('tabAnnual')}</span></button>
   </div>`;
 }
 function renderBills() {
@@ -188,7 +205,7 @@ function renderMonthly() {
   let act = activeCards();
   if (focusCardId) act = act.filter(c => c.id === focusCardId);
   if (act.length === 0) {
-    return `<div class="empty"><div class="big">💳</div>请先在「信用卡」中添加卡片</div>`;
+    return emptyState('cards', '请先在「信用卡」中添加卡片');
   }
   const rows = act.map(c => {
     const b = bills.find(x => x.cardId === c.id && x.period === ym);
@@ -223,12 +240,12 @@ function renderMonthly() {
   }, 0);
 
   return `<div class="panel">
-    <div class="panel-title">${sel.year} 年 ${sel.month} 月 · 各卡账单</div>
-    <table>
+    <div class="panel-head"><div class="panel-title">${sel.year} 年 ${sel.month} 月 · 各卡账单</div></div>
+    <div class="table-wrap"><table>
       <thead><tr><th>信用卡</th><th>本期账单</th><th>已还</th><th>待还</th><th>还款日</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr><td>合计</td><td>${money(totalStmt)}</td><td>${money(totalPaid)}</td><td>${money(totalStmt - totalPaid)}</td><td colspan="3"></td></tr></tfoot>
-    </table>
+    </table></div>
   </div>`;
 }
 
@@ -240,7 +257,7 @@ function renderAnnual() {
   const y = String(sel.year);
   const yb = bills.filter(b => b.period.startsWith(y));
   if (yb.length === 0) {
-    return `<div class="empty"><div class="big">📊</div>${sel.year} 年暂无账单数据</div>`;
+    return emptyState('chart', `${sel.year} 年暂无账单数据`);
   }
   const totalStmt = yb.reduce((s, b) => s + (Number(b.statement) || 0), 0);
   const totalPaid = yb.reduce((s, b) => s + (Number(b.paid) || 0), 0);
@@ -258,17 +275,20 @@ function renderAnnual() {
   yb.forEach(b => { const m = parseInt(b.period.split('-')[1], 10); monthly[m - 1] += Number(b.statement) || 0; });
 
   const stats = [
-    { label: '全年账单总额', value: money(totalStmt) },
-    { label: '全年已还', value: money(totalPaid) },
-    { label: '涉及卡片', value: Object.keys(byCard).length + ' 张' },
-    { label: '月均账单', value: money(totalStmt / 12) },
+    { label: '全年账单总额', value: money(totalStmt), icon: 'trend', tone: 'indigo' },
+    { label: '全年已还', value: money(totalPaid), icon: 'check', tone: 'teal' },
+    { label: '涉及卡片', value: Object.keys(byCard).length + ' 张', icon: 'cards', tone: 'violet' },
+    { label: '月均账单', value: money(totalStmt / 12), icon: 'chart', tone: 'amber' },
   ];
 
   let html = `<div class="stat-grid">` + stats.map(s =>
-    `<div class="stat-card"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`).join('') + `</div>`;
+    `<div class="stat-card tone-${s.tone}">
+      <div class="stat-head"><span class="stat-ico">${svgIcon(s.icon)}</span><span class="label">${s.label}</span></div>
+      <div class="value">${s.value}</div>
+    </div>`).join('') + `</div>`;
 
-  html += `<div class="panel"><div class="panel-title">各卡年度合计</div>
-    <table><thead><tr><th>信用卡</th><th>年度账单</th><th>笔数</th></tr></thead><tbody>${cardRows}</tbody></table></div>`;
+  html += `<div class="panel"><div class="panel-head"><div class="panel-title">各卡年度合计</div></div>
+    <div class="table-wrap"><table><thead><tr><th>信用卡</th><th>年度账单</th><th>笔数</th></tr></thead><tbody>${cardRows}</tbody></table></div></div>`;
 
   html += `<div class="panel"><div class="panel-title">${sel.year} 年月度走势（账单金额）</div>
     ${barChart(monthly, ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'], money)}</div>`;
@@ -290,7 +310,7 @@ function renderAnnual() {
 function renderBenefits() {
   const act = activeCards();
   if (act.length === 0) {
-    return `<div class="empty"><div class="big">🎁</div>还没有有效信用卡，先在「信用卡」中添加卡片吧。</div>`;
+    return emptyState('benefits', '还没有有效信用卡，先在「信用卡」中添加卡片吧。');
   }
   const cardsHtml = act.map(c => `
     <div class="benefit-card">
@@ -313,13 +333,14 @@ function renderBenefits() {
 /* ------------------------------- 设置（账户 / 同步） ------------------------------- */
 function updateSyncState() {
   const el = document.getElementById('syncState');
+  const pill = document.getElementById('syncPill');
   if (!el) return;
   if (Store.isCloud) {
     el.textContent = '云端账户';
-    el.classList.add('remote');
+    if (pill) pill.classList.add('remote');
   } else {
     el.textContent = '本地存储';
-    el.classList.remove('remote');
+    if (pill) pill.classList.remove('remote');
   }
 }
 
@@ -333,11 +354,11 @@ function renderAccountArea() {
     el.innerHTML = `<div class="account-chip" id="acChip">
         <span class="account-avatar">${esc(initial)}</span>
         <span class="account-email">${esc(nick)}</span>
-        <span class="account-caret">▾</span>
+        <span class="account-caret">${svgIcon('chevron', '', 14)}</span>
       </div>
       <div class="account-menu" id="acMenu" style="display:none">
-        <button id="acSettings">${t('accountSettings')}</button>
-        <button id="acLogout">${t('logout')}</button>
+        <button id="acSettings">${svgIcon('settings', '', 15)}<span>${t('accountSettings')}</span></button>
+        <button id="acLogout" class="danger">${svgIcon('logout', '', 15)}<span>${t('logout')}</span></button>
       </div>`;
     const chip = document.getElementById('acChip');
     const menu = document.getElementById('acMenu');
