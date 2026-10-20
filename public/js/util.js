@@ -33,6 +33,58 @@ function statusText(s) { return { unpaid: '未还', paid: '已还', min: '最低
 function statusClass(s) { return ['unpaid', 'paid', 'min'].includes(s) ? s : 'unpaid'; }
 function activeCards() { return cards.filter(c => !c.closed); }
 
+/* ------------------------------- 还款紧急度 / 额度使用率（P0-1、P1-5 的共享真源） ------------------------------- */
+// 距今天数：负数 = 已逾期
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((d - today) / 86400000);
+}
+// 账单紧急度：已还 / 逾期 / 临期(≤3天) / 正常 —— 全站统一消费，杜绝“逾期被算作即将到期”
+function billTone(b) {
+  if (!b || b.status === 'paid') return 'paid';
+  const d = daysUntil(b.dueDate);
+  if (d == null) return 'normal';
+  if (d < 0) return 'overdue';
+  if (d <= 3) return 'soon';
+  return 'normal';
+}
+// 单卡已用额度（未结清余额）= 该卡所有账单的 (本期 − 已还)
+function usageOf(c) {
+  const used = bills.filter(b => b.cardId === c.id && b.status !== 'paid')
+    .reduce((s, b) => s + ((Number(b.statement) || 0) - (Number(b.paid) || 0)), 0);
+  const limit = Number(c.limit) || 0;
+  return { used, limit, pct: limit ? Math.min(100, Math.round(used / limit * 100)) : 0 };
+}
+// 整体额度使用率（与“总授信”同银行取最高口径一致，不叠加）
+function totalUsage(list) {
+  const byBank = {};
+  list.forEach(c => {
+    const k = (c.bank || '').trim() || '未分类';
+    const lim = Number(c.limit) || 0;
+    if (!byBank[k] || lim > byBank[k]) byBank[k] = lim;
+  });
+  const limit = Object.values(byBank).reduce((s, v) => s + v, 0);
+  const used = list.reduce((s, c) => s + usageOf(c).used, 0);
+  return { used, limit, pct: limit ? Math.min(100, Math.round(used / limit * 100)) : 0 };
+}
+// 本月账单较上月变化（仅对两张月都有账单的记录求和，避免空月干扰）
+function monthChange(y, m) {
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${pad2(m - 1)}`;
+  const cur = `${y}-${pad2(m)}`;
+  const sum = (ym) => bills.filter(b => b.period === ym).reduce((s, b) => s + (Number(b.statement) || 0), 0);
+  const p = sum(prev), c = sum(cur);
+  if (!p) return null;
+  return c - p;
+}
+function avgMonth(y) {
+  const yb = bills.filter(b => b.period.startsWith(String(y)));
+  return yb.length ? Math.round(yb.reduce((s, b) => s + (Number(b.statement) || 0), 0) / 12) : 0;
+}
+function totalPoints(list) { return list.reduce((s, c) => s + (Number(c.points) || 0), 0); }
+
 /* ------------------------------- 安全 ------------------------------- */
 // 仅允许 data:image 或 http(s) 链接，杜绝 XSS / CSS 注入
 function safeImage(v) {
@@ -110,24 +162,51 @@ function parseCsv(text) {
   return rows.filter(r => r.some(c => c.trim() !== ''));
 }
 
-/* ------------------------------- SVG 柱状图 ------------------------------- */
-function barChart(values, labels, fmt) {
-  const W = 720, H = 220, pad = 30, n = values.length;
-  const max = Math.max(1, ...values);
-  const bw = (W - pad * 2) / n * 0.6;
-  const gap = (W - pad * 2) / n;
-  const bars = values.map((v, i) => {
-    const h = (v / max) * (H - pad * 2);
-    const x = pad + i * gap + (gap - bw) / 2;
-    const y = H - pad - h;
-    return `<g>
-      <rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="4" fill="#4f46e5"></rect>
-      <text x="${x + bw / 2}" y="${y - 6}" text-anchor="middle" font-size="11" fill="#5b6472">${fmt ? fmt(v) : v}</text>
-      <text x="${x + bw / 2}" y="${H - pad + 16}" text-anchor="middle" font-size="11" fill="#5b6472">${esc(labels[i])}</text>
-    </g>`;
+/* ------------------------------- SVG 柱状图（修复：标签重叠 / 未来月 null / 无坐标轴） ------------------------------- */
+function barChart(values, labels, fmt, opts) {
+  opts = opts || {};
+  const W = 720, H = 240, padL = 52, padR = 14, padT = 26, padB = 28;
+  const n = values.length;
+  const hasVal = values.filter(v => v != null && isFinite(v));
+  const max = Math.max(1, ...hasVal, opts.avg || 0);
+  const plotH = H - padT - padB, plotW = W - padL - padR;
+  const slot = plotW / n, bw = Math.min(slot * 0.56, 26);
+  // y 轴网格线 + 左侧刻度值（交给左留白，避免压在柱子上）
+  const kfmt = (v) => {
+    if (!v) return '0';
+    if (v >= 10000) return (v / 10000).toFixed(v % 10000 ? 1 : 0) + '万';
+    if (v >= 1000) return (v / 1000).toFixed(v % 1000 ? 1 : 0) + 'k';
+    return String(Math.round(v));
+  };
+  const grid = [0, .25, .5, .75, 1].map(tt => {
+    const y = padT + plotH - tt * plotH;
+    const lab = tt === 0 ? '' : `<text class="y-lab" x="${padL - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--ink-faint)">${kfmt(max * tt)}</text>`;
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-dasharray="3 3" stroke-width="1"/>${lab}`;
   }).join('');
-  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet">
-    <line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" stroke="#e6e8ef"></line>${bars}
+  const avgY = (opts.avg != null) ? padT + plotH - (opts.avg / max) * plotH : null;
+  const avgLine = avgY != null
+    ? `<line x1="${padL}" y1="${avgY.toFixed(1)}" x2="${W - padR}" y2="${avgY.toFixed(1)}" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="6 4"/>
+       <text class="avg-lab" x="${padL + 6}" y="${(avgY - 6).toFixed(1)}" text-anchor="start" font-size="10" font-weight="600" fill="var(--warn)">${(t('avgLabel') || '月均')} ${fmt ? fmt(opts.avg) : opts.avg}</text>` : '';
+  const maxV = hasVal.length ? Math.max(...hasVal) : 0;
+  const bars = values.map((v, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const lb = esc(labels[i]);
+    const xlb = `<text class="x-lab" x="${cx}" y="${H - padB + 17}" text-anchor="middle" font-size="10" fill="var(--ink-faint)">${lb}</text>`;
+    if (v == null) {
+      return `<g>${xlb}<rect class="ph" x="${(cx - bw / 2).toFixed(1)}" y="${padT + plotH - 16}" width="${bw.toFixed(1)}" height="12" rx="3" fill="none" stroke="var(--line-2)" stroke-dasharray="3 3"/></g>`;
+    }
+    const h = Math.max(2, (v / max) * plotH);
+    const y = padT + plotH - h;
+    const isMax = v === maxV && v > 0;
+    // 只标「最大」一根（避免首/尾标签越界压住相邻柱），其余靠 hover title；贴顶时下移避免被裁切
+    const vlb = isMax
+      ? `<text class="v-lab" x="${cx}" y="${Math.max(padT + 9, y - 7).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--ink-2)">${fmt ? fmt(v) : v}</text>` : '';
+    return `<g><title>${lb}：${fmt ? fmt(v) : v}</title>
+      <rect x="${(cx - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--brand)" opacity="${isMax ? 1 : .82}"></rect>
+      ${xlb}${vlb}</g>`;
+  }).join('');
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${(t('chartAria') || '账单走势柱状图')}">
+    ${grid}${avgLine}<line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="var(--line-2)" stroke-width="1.5"/>${bars}
   </svg></div>`;
 }
 
@@ -228,6 +307,15 @@ const I18N = {
     cardsActive: '有效卡', cardsClosed: '已注销', loungeCount: '机场贵宾厅次数',
     benefitsInfo: '权益说明', benefitsHint: '查看每张有效卡的年费与专属权益',
     feeLabel: '年费', loungeLabel: '机场贵宾厅', noBenefit: '未填写权益说明',
+    used: '已用', avgMonth: '月均', overdueTitle: '逾期账单', maxOverdue: '最久逾期', days: '天', noOverdue: '无逾期',
+    overdueBy: '已逾期', dueIn: '还剩', daysCount: '还剩 {n} 天', overdueDayCount: '已逾期 {n} 天',
+    allPaid: '全部结清', usageRate: '额度使用率', available: '可用',
+    grpOverdue: '已逾期', grpSoon: '3 天内临期', grpLater: '后续待还',
+    bills: '笔', totalUnpaid: '总待还', totalPoints: '积分合计',
+    usagePerCard: '额度使用率', noCard: '还没有信用卡', monthTrend: '年月度走势', monthShort: '月',
+    markPaid: '标记为已还', paid: '已还', nextDue: '下一个还款日',
+    laterTag: '剩 {n} 天', soonTag: '剩 {n} 天', overdueTag: '逾期 {n} 天',
+    avgLabel: '月均', chartAria: '月度账单柱状图',
   },
   en: {
     overview: 'Overview', cards: 'Cards', closed: 'Closed', monthly: 'Monthly', annual: 'Annual', history: 'History', settings: 'Settings',
@@ -254,6 +342,15 @@ const I18N = {
     cardsActive: 'Active', cardsClosed: 'Closed', loungeCount: 'Airport Lounge Visits',
     benefitsInfo: 'Benefits', benefitsHint: 'Annual fee & perks for each active card',
     feeLabel: 'Annual Fee', loungeLabel: 'Lounge', noBenefit: 'No benefits noted',
+    used: 'Used', avgMonth: 'Avg/mo', overdueTitle: 'Overdue', maxOverdue: 'Oldest', days: 'd', noOverdue: 'None',
+    overdueBy: 'Overdue', dueIn: 'Due in', daysCount: '{n} days left', overdueDayCount: 'Overdue {n} d',
+    allPaid: 'All settled', usageRate: 'Credit usage', available: 'Available',
+    grpOverdue: 'Overdue', grpSoon: 'Due ≤3 days', grpLater: 'Upcoming',
+    bills: '', totalUnpaid: 'Total due', totalPoints: 'Points',
+    usagePerCard: 'Usage per card', noCard: 'No cards yet', monthTrend: 'Monthly trend', monthShort: '',
+    markPaid: 'Mark paid', paid: 'Paid', nextDue: 'Next due',
+    laterTag: '{n}d left', soonTag: '{n}d left', overdueTag: 'Overdue {n}d',
+    avgLabel: 'Avg', chartAria: 'Monthly bills bar chart',
   },
 };
 let lang = localStorage.getItem('ccms.lang') || 'zh';

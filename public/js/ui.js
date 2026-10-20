@@ -40,59 +40,131 @@ function render() {
 }
 
 /* ------------------------------- 概览 ------------------------------- */
+function dueRow(d) {
+  const remain = (Number(d.b.statement) || 0) - (Number(d.b.paid) || 0);
+  const c = d.c || { name: t('cards'), bank: '', color: '#4f46e5' };
+  const tag = d.tone === 'overdue' ? `<span class="due-tag ov">${t('overdueTag').replace('{n}', -d.days)}</span>`
+    : d.tone === 'soon' ? `<span class="due-tag sn">${t('soonTag').replace('{n}', d.days)}</span>`
+    : `<span class="due-tag ok">${t('laterTag').replace('{n}', d.days)}</span>`;
+  return `<div class="due-row ${d.tone}">
+    <span class="due-k" style="background:${esc(c.color || '#4f46e5')}">${esc((c.bank || '').slice(0, 2) || '卡')}</span>
+    <span class="due-mid"><span class="due-nm">${esc(c.name)}</span><span class="due-mt">${esc(d.b.period)} · ${t('paid')} ${money(d.b.paid)}</span></span>
+    <span class="due-rt"><span class="due-am">${money(remain)}</span>${tag}</span>
+    <button class="due-ck" data-pay-bill="${esc(d.b.id)}" title="${t('markPaid')}" aria-label="${t('markPaid')}">${svgIcon('check', '', 13)}</button>
+  </div>`;
+}
+
 function renderDashboard() {
-  const ym = monthKey(sel.year, sel.month);
+  const y = sel.year, m = sel.month;
+  const ym = monthKey(y, m);
   const monthBills = bills.filter(b => b.period === ym);
   const monthTotal = monthBills.reduce((s, b) => s + (Number(b.statement) || 0), 0);
-  const monthUnpaid = monthBills
-    .filter(b => b.status !== 'paid')
-    .reduce((s, b) => s + ((Number(b.statement) || 0) - (Number(b.paid) || 0)), 0);
-
-  const upcoming = bills
-    .filter(b => b.status !== 'paid' && b.dueDate)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-    .slice(0, 5);
+  const monthUnpaid = monthBills.filter(b => b.status !== 'paid').reduce((s, b) => s + ((Number(b.statement) || 0) - (Number(b.paid) || 0)), 0);
 
   const act = activeCards();
-  const totalLimit = totalLimitByBank(act); // 同银行取最高，不叠加
-  const yearTotal = bills
-    .filter(b => b.period.startsWith(String(sel.year)))
-    .reduce((s, b) => s + (Number(b.statement) || 0), 0);
+  const usage = totalUsage(act); // 整体额度使用率（已用/总授信）
+  const yearTotal = bills.filter(b => b.period.startsWith(String(y))).reduce((s, b) => s + (Number(b.statement) || 0), 0);
+
+  // 临近 / 逾期账单分组（唯一真源 billTone）
+  const due = bills.filter(b => b.status !== 'paid' && b.dueDate)
+    .map(b => ({ b, c: cardById(b.cardId), tone: billTone(b), days: daysUntil(b.dueDate) }))
+    .filter(d => d.days != null)
+    .sort((a, b) => a.days - b.days);
+  const overdue = due.filter(d => d.tone === 'overdue');
+  const soon = due.filter(d => d.tone === 'soon');
+  const later = due.filter(d => d.tone === 'normal');
+  const maxOverdue = overdue.length ? Math.max(...overdue.map(d => -d.days)) : 0;
+  const next = due.length ? due[0] : null; // 最紧急（逾期优先）
+  const change = monthChange(y, m);
 
   const stats = [
-    { label: t('activeCards'), value: act.length, sub: `${t('totalLimit')} ${money(totalLimit)}`, icon: 'cards', tone: 'indigo' },
-    { label: `${sel.year}${t('monthBill')}`, value: money(monthTotal), sub: `${t('unpaid')} ${money(monthUnpaid)}`, icon: 'calendar', tone: 'violet' },
-    { label: `${sel.year}${t('yearBill')}`, value: money(yearTotal), sub: t('yearBill'), icon: 'trend', tone: 'teal' },
-    { label: t('upcoming'), value: upcoming.length, sub: t('upcoming'), icon: 'bell', tone: 'amber' },
+    { label: t('activeCards'), value: String(act.length), sub: `${t('totalLimit')} ${money(usage.limit)} · ${t('used')} ${usage.pct}%`, icon: 'cards', tone: 'indigo' },
+    { label: `${y}${t('monthBill')}`, value: money(monthTotal), sub: `${t('unpaid')} ${money(monthUnpaid)}${change != null ? ` · ${change >= 0 ? '+' : '−'}${money(Math.abs(change))}` : ''}`, icon: 'calendar', tone: 'violet' },
+    { label: `${y}${t('yearBill')}`, value: money(yearTotal), sub: `${t('avgMonth')} ${money(avgMonth(y))}`, icon: 'trend', tone: 'teal' },
+    { label: t('overdueTitle'), value: String(overdue.length), sub: overdue.length ? `${t('maxOverdue')} ${maxOverdue}${t('days')}` : t('noOverdue'), icon: 'warn', tone: 'amber', danger: overdue.length > 0 },
   ];
 
-  let html = `<div class="stat-grid">` + stats.map(s => `
-    <div class="stat-card tone-${s.tone}">
-      <div class="stat-head">
-        <span class="stat-ico">${svgIcon(s.icon)}</span>
-        <span class="label">${s.label}</span>
+  // 下一个还款日 hero（含整体额度使用率环图）
+  let hero;
+  if (next) {
+    const nd = next.days;
+    const remain = (Number(next.b.statement) || 0) - (Number(next.b.paid) || 0);
+    const ht = next.tone === 'overdue' ? 'overdue' : (next.tone === 'soon' ? 'soon' : 'normal');
+    const big = next.tone === 'overdue' ? t('overdueDayCount').replace('{n}', -nd) : t('daysCount').replace('{n}', nd);
+    hero = `<div class="dash-hero tone-${ht}">
+      <div class="dh-left">
+        <div class="dh-lab">${t('nextDue')} · ${esc(next.c ? next.c.name : '已删卡')}</div>
+        <div class="dh-big">${big}</div>
+        <div class="dh-amt">${money(remain)} · ${esc(next.b.dueDate)}</div>
       </div>
-      <div class="value">${s.value}</div>
-      <div class="sub">${s.sub}</div>
-    </div>`).join('') + `</div>`;
-
-  html += `<div class="panel"><div class="panel-head"><div class="panel-title">${t('recentDue')}</div><span class="panel-hint">${upcoming.length ? upcoming.length + ' 笔' : ''}</span></div>`;
-  if (upcoming.length === 0) {
-    html += emptyState('check', t('noDue'));
+      <div class="dh-ring" style="--p:${usage.pct}"><div class="ring-i">${usage.pct}<span>%</span></div></div>
+      <div class="dh-sp">
+        <div class="dh-sp-t">${t('usageRate')}</div>
+        <div class="dh-sp-v">${t('used')} ${money(usage.used)}</div>
+        <div class="dh-sp-s">${t('available')} ${money(Math.max(0, usage.limit - usage.used))} / ${money(usage.limit)}</div>
+      </div>
+    </div>`;
   } else {
-    html += `<div class="table-wrap"><table><thead><tr><th>${t('cards')}</th><th>${t('billOf')}</th><th>${t('stmtAmt')}</th><th>已还</th><th>还款日</th><th>状态</th></tr></thead><tbody>`;
-    html += upcoming.map(b => {
-      const c = cardById(b.cardId);
-      return `<tr>
-        <td>${esc(c ? c.name : '已删卡')}</td>
-        <td>${b.period}</td><td>${money(b.statement)}</td><td>${money(b.paid)}</td>
-        <td>${esc(b.dueDate)}</td>
-        <td><span class="badge ${statusClass(b.status)}">${statusText(b.status)}</span></td>
-      </tr>`;
-    }).join('');
-    html += `</tbody></table></div>`;
+    hero = `<div class="dash-hero tone-none">
+      <div class="dh-left">
+        <div class="dh-lab">${t('nextDue')}</div>
+        <div class="dh-big">${t('allPaid')}</div>
+        <div class="dh-amt">${t('noDue')}</div>
+      </div>
+      <div class="dh-ring" style="--p:${usage.pct}"><div class="ring-i">${usage.pct}<span>%</span></div></div>
+      <div class="dh-sp">
+        <div class="dh-sp-t">${t('usageRate')}</div>
+        <div class="dh-sp-v">${t('used')} ${money(usage.used)}</div>
+        <div class="dh-sp-s">${t('available')} ${money(Math.max(0, usage.limit - usage.used))} / ${money(usage.limit)}</div>
+      </div>
+    </div>`;
   }
-  html += `</div>`;
+
+  // 待还清款分组列表
+  const duePanel = `<div class="panel">
+    <div class="panel-head"><div class="panel-title">${t('recentDue')}</div><span class="panel-hint">${due.length ? due.length + ' ' + t('bills') : ''}</span></div>
+    ${overdue.length ? `<div class="due-grp">${t('grpOverdue')}</div>` + overdue.map(dueRow).join('') : ''}
+    ${soon.length ? `<div class="due-grp">${t('grpSoon')}</div>` + soon.map(dueRow).join('') : ''}
+    ${later.length ? `<div class="due-grp">${t('grpLater')}</div>` + later.map(dueRow).join('') : ''}
+    ${!due.length ? emptyState('check', t('noDue')) : ''}
+    <div class="due-foot">${t('totalUnpaid')} <b>${money(monthUnpaid)}</b> · ${due.length} ${t('bills')} · ${t('totalPoints')} <b>${totalPoints(act)}</b></div>
+  </div>`;
+
+  // 各卡额度使用率
+  const usagePanel = `<div class="panel">
+    <div class="panel-head"><div class="panel-title">${t('usagePerCard')}</div></div>
+    ${act.map(c => { const u = usageOf(c); const ov = u.pct >= 70; return `<div class="usg-row">
+      <span class="usg-k" style="background:${esc(c.color || '#4f46e5')}"></span>
+      <span class="usg-nm">${esc(c.name)}</span>
+      <span class="usg-pg"><span class="usg-pi ${ov ? 'ov' : ''}" style="width:${u.pct}%"></span></span>
+      <span class="usg-pv ${ov ? 'ov' : ''}">${u.pct}%</span>
+    </div>`; }).join('') || `<div class="muted">${t('noCard')}</div>`}
+  </div>`;
+
+  // 月度走势：当前月之后的月份填 null（未到账期）
+  const chartVals = Array(12).fill(0).map((_, i) => ((i + 1) > m && y === now.getFullYear()) ? null : 0);
+  bills.filter(b => b.period.startsWith(String(y))).forEach(b => {
+    const mm = parseInt(b.period.split('-')[1], 10);
+    if (mm >= 1 && mm <= 12 && chartVals[mm - 1] != null) chartVals[mm - 1] += Number(b.statement) || 0;
+  });
+  const labels = Array.from({ length: 12 }, (_, i) => (i + 1) + t('monthShort'));
+
+  let html = `<div class="dash">
+    ${hero}
+    <div class="stat-grid">${stats.map(s => `
+      <div class="stat-card ${s.danger ? 'tone-danger' : 'tone-' + s.tone}">
+        <div class="stat-head"><span class="stat-ico">${svgIcon(s.icon)}</span><span class="label">${s.label}</span></div>
+        <div class="value">${s.value}</div>
+        <div class="sub">${s.sub}</div>
+      </div>`).join('')}</div>
+    <div class="dash-grid">
+      <div class="dash-col-main">
+        <div class="panel"><div class="panel-head"><div class="panel-title">${y}${t('monthTrend')}</div></div>${barChart(chartVals, labels, money, { avg: avgMonth(y) })}</div>
+        ${usagePanel}
+      </div>
+      <div class="dash-col-side">${duePanel}</div>
+    </div>
+  </div>`;
   return html;
 }
 
@@ -104,8 +176,12 @@ function feeText(c) {
   return '';
 }
 function ccCardHtml(c, navigable) {
-  const grace = c.gracePeriod ? ` · 免息期 ${esc(c.gracePeriod)} 天` : '';
+  const grace = c.gracePeriod ? ` · 免息 ${esc(c.gracePeriod)} 天` : '';
   const fee = feeText(c);
+  const u = usageOf(c);
+  const uOv = u.pct >= 70;
+  const chip = (c.points != null && c.points > 0) || (c.annual_fee != null && c.annual_fee > 0)
+    ? `<span class="cc-tag">${c.points != null && c.points > 0 ? t('points') + ' ' + c.points.toLocaleString('zh-CN') : feeText(c)}</span>` : '';
   return `<div class="cc-card" style="${cardFaceStyle(c)}" data-go-card="${c.id}">
     <div class="cc-overlay"></div>
     <div class="cc-chip"></div>
@@ -113,14 +189,21 @@ function ccCardHtml(c, navigable) {
       <button data-edit-card="${c.id}" title="编辑" aria-label="编辑">${svgIcon('edit')}</button>
       <button data-del-card="${c.id}" title="删除" aria-label="删除">${svgIcon('trash')}</button>
     </div>
-    <div>
+    <div class="cc-top">
       <div class="cc-bank">${esc(c.bank || '未填银行')}</div>
+      ${chip}
+    </div>
+    <div>
       <div class="cc-num">•••• ${esc(c.last4 || '****')}</div>
     </div>
     <div>
-      <div class="cc-bank">${esc(c.name)}</div>
+      <div class="cc-name">${esc(c.name)}</div>
       <div class="cc-meta">账单日 ${esc(c.billingDay) || '—'} · 还款日 ${esc(c.dueDay) || '—'} · 额度 ${money(c.limit)}${grace}</div>
       ${fee ? `<div class="cc-meta">${fee}</div>` : ''}
+      <div class="cc-use">
+        <div class="cc-use-t"><span>${t('used')} ${u.pct}%</span><span>${t('used')} ${money(u.used)} / ${money(u.limit)}</span></div>
+        <div class="cc-use-p"><span class="cc-use-i ${uOv ? 'ov' : ''}" style="width:${u.pct}%"></span></div>
+      </div>
     </div>
   </div>`;
 }
@@ -167,6 +250,10 @@ function renderClosedCards() {
       <div>
         <div class="cc-bank">${esc(c.name)}</div>
         <div class="cc-meta">${c.closedAt ? '注销于 ' + esc(c.closedAt) : '已注销'} · 留存 ${cnt} 笔账单</div>
+        <div class="cc-use">
+          <div class="cc-use-t"><span>${t('used')} ${usageOf(c).pct}%</span><span>${money(usageOf(c).used)} / ${money(usageOf(c).limit)}</span></div>
+          <div class="cc-use-p"><span class="cc-use-i" style="width:${usageOf(c).pct}%"></span></div>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -187,6 +274,15 @@ function renderBills() {
 function renderBillsActions(actions) {
   if (billPartition === 'annual') renderYearControls(actions);
   else renderMonthlyControls(actions);
+}
+
+/* ------------------------------- 状态徽章（含逾期/临期分级，P0-1 落地到表格） ------------------------------- */
+function statusBadge(b) {
+  if (b.status === 'paid') return `<span class="badge paid">${statusText('paid')}</span>`;
+  const d = daysUntil(b.dueDate);
+  if (d != null && d < 0) return `<span class="badge unpaid">${t('overdueTag').replace('{n}', -d)}</span>`;
+  if (d != null && d <= 3) return `<span class="badge min">${t('soonTag').replace('{n}', d)}</span>`;
+  return `<span class="badge ${statusClass(b.status)}">${statusText(b.status)}</span>`;
 }
 
 /* ------------------------------- 月度账单 ------------------------------- */
@@ -211,19 +307,22 @@ function renderMonthly() {
     const b = bills.find(x => x.cardId === c.id && x.period === ym);
     if (!b) {
       return `<tr>
-        <td><span class="dot" style="background:${esc(c.color || '#4f46e5')}"></span>${esc(c.name)}</td>
-        <td class="muted">未录入</td><td class="muted">—</td><td class="muted">—</td>
-        <td class="muted">—</td><td class="muted">—</td>
-        <td><button class="btn sm" data-add-bill="${c.id}">录入</button></td>
+        <td data-label="${t('cards')}"><span class="dot" style="background:${esc(c.color || '#4f46e5')}"></span>${esc(c.name)}</td>
+        <td class="muted" data-label="${t('stmtAmt')}">未录入</td><td class="muted" data-label="${t('paidAmt')}">—</td><td class="muted" data-label="${t('unpaid')}">—</td>
+        <td class="muted" data-label="${t('dueDate')}">—</td><td class="muted" data-label="${t('billStatus')}">—</td>
+        <td data-label=""><button class="btn sm" data-add-bill="${c.id}">录入</button></td>
       </tr>`;
     }
     const remain = (Number(b.statement) || 0) - (Number(b.paid) || 0);
-    return `<tr>
-      <td><span class="dot" style="background:${esc(c.color || '#4f46e5')}"></span>${esc(c.name)}</td>
-      <td>${money(b.statement)}</td><td>${money(b.paid)}</td><td>${money(remain)}</td>
-      <td>${esc(b.dueDate || '—')}</td>
-      <td><span class="badge ${statusClass(b.status)}">${statusText(b.status)}</span></td>
-      <td>
+    const tone = billTone(b);
+    return `<tr class="due-${tone}">
+      <td data-label="${t('cards')}"><span class="dot" style="background:${esc(c.color || '#4f46e5')}"></span>${esc(c.name)}</td>
+      <td data-label="${t('stmtAmt')}">${money(b.statement)}</td>
+      <td data-label="${t('paidAmt')}">${money(b.paid)}</td>
+      <td data-label="${t('unpaid')}">${money(remain)}</td>
+      <td data-label="${t('dueDate')}">${esc(b.dueDate || '—')}</td>
+      <td data-label="${t('billStatus')}">${statusBadge(b)}</td>
+      <td data-label="">
         <button class="btn sm" data-edit-bill="${b.id}">编辑</button>
         <button class="btn sm danger" data-del-bill="${b.id}">删除</button>
       </td>
@@ -241,7 +340,7 @@ function renderMonthly() {
 
   return `<div class="panel">
     <div class="panel-head"><div class="panel-title">${sel.year} 年 ${sel.month} 月 · 各卡账单</div></div>
-    <div class="table-wrap"><table>
+    <div class="table-wrap"><table class="bill-table">
       <thead><tr><th>信用卡</th><th>本期账单</th><th>已还</th><th>待还</th><th>还款日</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr><td>合计</td><td>${money(totalStmt)}</td><td>${money(totalPaid)}</td><td>${money(totalStmt - totalPaid)}</td><td colspan="3"></td></tr></tfoot>
@@ -509,6 +608,15 @@ function bindViewEvents() {
   document.querySelectorAll('[data-edit-bill]').forEach(b => b.onclick = () => openBillModal(b.dataset.editBill));
   document.querySelectorAll('[data-del-bill]').forEach(b => b.onclick = () => {
     if (confirm('确定删除这笔账单？')) { bills = bills.filter(x => x.id !== b.dataset.delBill); Store.pendingDelete.bills.push(b.dataset.delBill); commit(); }
+  });
+  // 概览页待还列表：一键标记为已还
+  document.querySelectorAll('[data-pay-bill]').forEach(b => b.onclick = () => {
+    const bill = bills.find(x => x.id === b.dataset.payBill);
+    if (!bill) return;
+    bill.status = 'paid';
+    bill.paid = Number(bill.statement) || 0;
+    bill.updatedAt = Date.now();
+    commit();
   });
   document.querySelectorAll('[data-edit-card]').forEach(b => b.onclick = () => openCardModal(b.dataset.editCard));
   document.querySelectorAll('[data-del-card]').forEach(b => b.onclick = () => {

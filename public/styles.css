@@ -775,3 +775,185 @@ input[type="file"] { padding: 6px; font-size: 12px; cursor: pointer; }
   .modal { padding: 18px; }
   .stat-card .value { font-size: 22px; }
 }
+
+/* ============================================================
+ * 概览页重构（P0/P1 修复）：Hero 还款日 + 额度环图、非对称栅格、
+ * 分组待还列表、各卡额度使用率、卡面使用率条
+ * ============================================================ */
+
+/* 统计卡：逾期危险态 */
+.stat-card.tone-danger { --tone: var(--danger); --tone-bg: var(--danger-soft); }
+[data-theme="dark"] .stat-card.tone-danger { --tone: #fb7185; --tone-bg: rgba(251, 113, 133, .18); }
+
+/* Hero：下一个还款日 + 整体额度使用率环图 */
+.dash-hero {
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 22px 24px;
+  box-shadow: var(--shadow-sm);
+  position: relative; overflow: hidden;
+  margin-bottom: 22px;
+}
+.dash-hero::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  background: var(--brand);
+}
+.dash-hero.tone-overdue::before { background: var(--danger); }
+.dash-hero.tone-soon::before { background: var(--warn); }
+.dash-hero.tone-normal::before { background: var(--ok); }
+.dash-hero.tone-none::before { background: var(--ink-faint); }
+.dh-left { flex: 1 1 200px; min-width: 0; }
+.dh-lab { font-size: 12.5px; color: var(--ink-soft); font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
+.dh-big {
+  font-size: 30px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1;
+  margin: 5px 0 3px; font-variant-numeric: tabular-nums;
+}
+.dash-hero.tone-overdue .dh-big { color: var(--danger); }
+.dash-hero.tone-soon .dh-big { color: var(--warn); }
+.dash-hero.tone-normal .dh-big { color: var(--ok); }
+.dh-amt { font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.dh-ring {
+  --p: 0; --ring-c: var(--brand);
+  width: 94px; height: 94px; border-radius: 50%; flex: none;
+  background:
+    radial-gradient(closest-side, var(--surface) 71%, transparent 72%),
+    conic-gradient(var(--ring-c) calc(var(--p) * 1%), var(--surface-3) 0);
+  display: grid; place-items: center;
+  box-shadow: var(--shadow-sm);
+}
+.dash-hero.tone-overdue .dh-ring { --ring-c: var(--danger); }
+.dash-hero.tone-soon .dh-ring { --ring-c: var(--warn); }
+.dash-hero.tone-normal .dh-ring { --ring-c: var(--ok); }
+.ring-i { font-size: 21px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ring-i span { font-size: 12px; font-weight: 600; color: var(--ink-soft); margin-left: 1px; }
+.dh-sp { flex: 1 1 160px; min-width: 0; }
+.dh-sp-t { font-size: 12.5px; color: var(--ink-soft); font-weight: 700; }
+.dh-sp-v { font-size: 15px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.dh-sp-s { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+
+/* 非对称栅格：主列（走势 + 各卡额度） + 侧列（待还分组） */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1.65fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.dash-col-main, .dash-col-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+/* 待还分组列表 */
+.due-grp {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 16px 0 6px; padding-bottom: 6px; border-bottom: 1px dashed var(--line);
+}
+.due-grp:first-of-type { margin-top: 0; }
+.due-row {
+  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.due-row:last-child { border-bottom: none; }
+.due-k {
+  width: 34px; height: 34px; border-radius: 10px; color: #fff; flex: none;
+  display: grid; place-items: center; font-size: 12px; font-weight: 700;
+}
+.due-mid { min-width: 0; }
+.due-nm { display: block; font-weight: 600; font-size: 13.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.due-mt { display: block; font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; }
+.due-rt { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; min-width: 0; }
+.due-am { font-weight: 700; font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.due-row.overdue .due-am { color: var(--danger); }
+.due-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 9px; border-radius: var(--r-full); font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+.due-tag.ov { background: var(--danger-soft); color: var(--danger); }
+.due-tag.sn { background: var(--warn-soft); color: var(--warn); }
+.due-tag.ok { background: var(--surface-3); color: var(--ink-soft); }
+.due-ck {
+  width: 32px; height: 32px; border-radius: 9px; flex: none;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ok);
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  transition: background .16s, transform .16s, box-shadow .16s;
+}
+.due-ck:hover { background: var(--ok-soft); transform: translateY(-1px); }
+.due-ck:focus-visible { outline: none; box-shadow: var(--ring); }
+.due-foot {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 12.5px; color: var(--ink-soft);
+}
+.due-foot b { color: var(--ink); }
+
+/* 各卡额度使用率条 */
+.usg-row {
+  display: grid; grid-template-columns: auto minmax(64px, 1fr) minmax(70px, 2fr) auto; align-items: center; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--line);
+}
+.usg-row:last-child { border-bottom: none; }
+.usg-k { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.usg-nm { font-size: 13px; color: var(--ink-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usg-pg { height: 8px; background: var(--surface-3); border-radius: var(--r-full); overflow: hidden; }
+.usg-pi { display: block; height: 100%; border-radius: var(--r-full); background: linear-gradient(90deg, var(--brand), var(--brand-2)); transition: width .5s cubic-bezier(.2, .7, .3, 1); }
+.usg-pi.ov { background: linear-gradient(90deg, var(--warn), var(--danger)); }
+.usg-pv { font-size: 12px; font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+.usg-pv.ov { color: var(--danger); }
+
+/* 卡面：名称 / 权益标签 / 额度使用率条 */
+.cc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cc-top .cc-bank { margin-bottom: 0; }
+.cc-name { font-size: 13px; font-weight: 600; opacity: .96; margin-top: 6px; line-height: 1.4; }
+.cc-tag {
+  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: var(--r-full);
+  background: rgba(255, 255, 255, .2); border: 1px solid rgba(255, 255, 255, .3);
+  font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap;
+}
+.cc-use { margin-top: 12px; }
+.cc-use-t { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; opacity: .92; margin-bottom: 6px; }
+.cc-use-p { height: 7px; background: rgba(0, 0, 0, .28); border-radius: var(--r-full); overflow: hidden; }
+.cc-use-i { display: block; height: 100%; background: rgba(255, 255, 255, .95); border-radius: var(--r-full); transition: width .5s cubic-bezier(.2, .7, .3, 1); }
+.cc-use-i.ov { background: #ff6b6b; }
+
+/* 图表：轴线标签 / 月均线 / 未来月占位 在全局 .chart svg 规则之上精确着色 */
+.chart svg text.avg-lab { fill: var(--warn); }
+.chart svg text.x-lab { fill: var(--ink-faint); }
+.chart svg text.v-lab { fill: var(--ink-2); }
+.chart svg text.y-lab { fill: var(--ink-faint); }
+.chart svg rect.ph { fill: none; }
+
+/* 月度账单表：移动端由横滚表格转为卡片式（P0-2） */
+@media (max-width: 760px) {
+  .bill-table { min-width: 0; }
+  .bill-table, .bill-table tbody, .bill-table tr, .bill-table td { display: block; width: 100%; }
+  .bill-table thead { display: none; }
+  .bill-table tfoot { display: none; }
+  .bill-table tbody tr {
+    border: 1px solid var(--line); border-radius: var(--r); padding: 4px 2px;
+    margin-bottom: 12px; background: var(--surface);
+  }
+  .bill-table tbody td {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--line); padding: 9px 12px; white-space: normal;
+  }
+  .bill-table tbody tr td:last-child { border-bottom: none; }
+  .bill-table tbody td::before {
+    content: attr(data-label); color: var(--ink-soft); font-size: 12px; font-weight: 600; flex: none;
+  }
+  /* 首列（卡名）：标签与名称紧邻，圆点贴住文字 */
+  .bill-table tbody td:first-child { justify-content: flex-start; }
+  .bill-table tbody td:first-child .dot { margin-left: 2px; }
+  /* 操作列：按钮不拉伸、右对齐 */
+  .bill-table tbody td:last-child { justify-content: flex-end; gap: 8px; }
+  .bill-table tbody td:last-child::before { content: none; }
+}
+
+/* 概览栅格在窄屏堆叠 */
+@media (max-width: 860px) {
+  .dash-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .dash-hero { gap: 16px; }
+  .dh-ring { width: 80px; height: 80px; }
+  .ring-i { font-size: 18px; }
+  .dh-big { font-size: 26px; }
+}
