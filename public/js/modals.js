@@ -9,6 +9,7 @@ const PALETTE = ['#4f46e5', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6
 function openCardModal(id) {
   const c = id ? cardById(id) : null;
   const colors = PALETTE.map(col => `<option value="${col}" ${c && c.color === col ? 'selected' : ''}>${col}</option>`).join('');
+  const ft = c ? (c.annual_fee_type || 'amount') : 'amount';
   const preview = c && c.image
     ? `<div class="img-preview" style="background-image:${imgCss(c.image)};background-size:cover;background-position:center"></div>`
     : `<div class="img-preview">上传卡面图片（可选）</div>`;
@@ -29,11 +30,18 @@ function openCardModal(id) {
         <div class="field"><label>信用额度</label><input id="f_limit" type="number" value="${esc(c ? c.limit : '')}" placeholder="50000"></div>
       </div>
       <div class="row2">
-        <div class="field"><label>积分余额</label><input id="f_points" type="number" min="0" value="${esc(c ? c.points : '')}" placeholder="如 120000"></div>
-        <div class="field"><label>年费（元）</label><input id="f_fee" type="number" min="0" value="${esc(c ? c.annual_fee : '')}" placeholder="如 2000"></div>
+        <div class="field"><label>${t('points')}</label><input id="f_points" type="number" min="0" value="${esc(c ? c.points : '')}" placeholder="如 120000"></div>
+        <div class="field"><label>${t('feeType')}</label><select id="f_feetype">
+          <option value="amount" ${ft === 'amount' ? 'selected' : ''}>${t('feeTypeAmount')}</option>
+          <option value="swipe" ${ft === 'swipe' ? 'selected' : ''}>${t('feeTypeSwipe')}</option>
+          <option value="points" ${ft === 'points' ? 'selected' : ''}>${t('feeTypePoints')}</option>
+        </select></div>
       </div>
-      <div class="field"><label>年费日期（每年）</label><input id="f_feedate" type="date" value="${esc(c ? c.annual_fee_date : '')}"></div>
-      <div class="field"><label>颜色标签</label><select id="f_color">${colors}</select></div>
+      <div class="field" id="feeAmountWrap" style="display:${ft === 'amount' ? 'block' : 'none'}"><label>${t('feeAmount')}</label><input id="f_fee" type="number" min="0" value="${esc(c ? c.annual_fee : '')}" placeholder="如 2000"></div>
+      <div class="field" id="feeSwipeWrap" style="display:${ft === 'swipe' ? 'block' : 'none'}"><label>${t('feeSwipe')}</label><input id="f_feeswipe" type="number" min="0" value="${esc(c ? c.annual_fee_swipe : '')}" placeholder="如 6"></div>
+      <div class="field" id="feePointsWrap" style="display:${ft === 'points' ? 'block' : 'none'}"><label>${t('feePoints')}</label><input id="f_feepoints" type="number" min="0" value="${esc(c ? c.annual_fee_points : '')}" placeholder="如 100000"></div>
+      <div class="field"><label>${t('feeDate')}</label><input id="f_feedate" type="date" value="${esc(c ? c.annual_fee_date : '')}"></div>
+      <div class="field"><label>${t('colorTag')}</label><div class="color-row"><select id="f_color">${colors}</select><span class="color-preview" id="colorPrev" style="background:${esc(c ? c.color || '#4f46e5' : '#4f46e5')}"></span><span class="muted">${t('colorPreview')}</span></div></div>
       <div class="field">
         <label>卡面图片（本地上传 或 图床链接，二选一）</label>
         ${preview}
@@ -107,6 +115,18 @@ function openCardModal(id) {
   document.getElementById('f_closed').onchange = e => {
     document.getElementById('closedAtWrap').style.display = e.target.checked ? 'block' : 'none';
   };
+  // 年费类型切换：显示对应输入框
+  const feeTypeSel = document.getElementById('f_feetype');
+  if (feeTypeSel) feeTypeSel.onchange = () => {
+    const v = feeTypeSel.value;
+    document.getElementById('feeAmountWrap').style.display = v === 'amount' ? 'block' : 'none';
+    document.getElementById('feeSwipeWrap').style.display = v === 'swipe' ? 'block' : 'none';
+    document.getElementById('feePointsWrap').style.display = v === 'points' ? 'block' : 'none';
+  };
+  // 颜色实时预览
+  const colorSel = document.getElementById('f_color');
+  const colorPrev = document.getElementById('colorPrev');
+  if (colorSel && colorPrev) colorSel.onchange = () => { colorPrev.style.background = colorSel.value; };
   document.getElementById('saveBtn').onclick = () => {
     const name = document.getElementById('f_name').value.trim();
     if (!name) { alert('请填写卡片名称'); return; }
@@ -120,7 +140,10 @@ function openCardModal(id) {
       gracePeriod: document.getElementById('f_grace').value,
       limit: document.getElementById('f_limit').value || 0,
       points: document.getElementById('f_points').value || null,
+      annual_fee_type: document.getElementById('f_feetype').value,
       annual_fee: document.getElementById('f_fee').value || null,
+      annual_fee_swipe: document.getElementById('f_feeswipe').value || null,
+      annual_fee_points: document.getElementById('f_feepoints').value || null,
       annual_fee_date: document.getElementById('f_feedate').value || '',
       color: document.getElementById('f_color').value,
       image: imgData,
@@ -313,7 +336,7 @@ function openCsvModal() {
       if (x.warn.length) { skipped++; continue; }
       let card = (x.match && x.match !== 'NEW') ? x.match : nameMap[x.cardName.toLowerCase()];
       if (!card) {
-        card = { id: uid(), name: x.cardName, bank: '', last4: '', billingDay: 1, dueDay: 25, gracePeriod: 50, limit: 0, color: PALETTE[cards.length % PALETTE.length], image: '', closed: false, closedAt: '', points: null, annual_fee: null, annual_fee_date: '', updatedAt: Date.now() };
+        card = { id: uid(), name: x.cardName, bank: '', last4: '', billingDay: 1, dueDay: 25, gracePeriod: 50, limit: 0, color: PALETTE[cards.length % PALETTE.length], image: '', closed: false, closedAt: '', points: null, annual_fee: null, annual_fee_date: '', annual_fee_type: 'amount', annual_fee_swipe: null, annual_fee_points: null, updatedAt: Date.now() };
         cards.push(card); nameMap[x.cardName.toLowerCase()] = card; createdCards++;
       }
       bills.push({ id: uid(), cardId: card.id, period: x.period, statement: x.statement, paid: x.paid, status: x.status, dueDate: x.dueDate, note: x.note, updatedAt: Date.now() });

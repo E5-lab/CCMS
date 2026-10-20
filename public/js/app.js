@@ -8,11 +8,34 @@
 let cards = [];
 let bills = [];
 let view = 'dashboard';
+let focusCardId = ''; // 概览页点击卡面后，在月度账单中聚焦该卡
 const now = new Date();
 const sel = { year: now.getFullYear(), month: now.getMonth() + 1 };
 
 /* ------------------------------- 导航 ------------------------------- */
-document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => { view = b.dataset.view; render(); });
+document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => {
+  view = b.dataset.view;
+  if (view === 'monthly') focusCardId = ''; // 通过导航进入月度账单时取消聚焦
+  render();
+});
+
+/* ------------------------------- 主题 / 语言 ------------------------------- */
+function updateThemeBtn() {
+  const btn = document.getElementById('themeBtn');
+  if (btn) btn.textContent = getTheme() === 'dark' ? '☀️' : '🌙';
+}
+function initThemeLang() {
+  setTheme(getTheme());
+  updateThemeBtn();
+  const themeBtn = document.getElementById('themeBtn');
+  if (themeBtn) themeBtn.onclick = () => { toggleTheme(); updateThemeBtn(); };
+  const langSel = document.getElementById('langSel');
+  if (langSel) {
+    langSel.innerHTML = `<option value="zh">${t('zh')}</option><option value="en">${t('en')}</option>`;
+    langSel.value = lang;
+    langSel.onchange = () => setLang(langSel.value);
+  }
+}
 
 /* ------------------------------- 多设备自动同步 ------------------------------- */
 // 云端模式下：窗口重新聚焦 / 页面重新可见时，自动拉取云端最新数据
@@ -37,6 +60,7 @@ if ('serviceWorker' in navigator) {
 
 /* ------------------------------- 初始化 ------------------------------- */
 (async function init() {
+  initThemeLang();
   try {
     const s = await Store.load(); // 登录态下(isCloud)自动拉取云端；否则读本地
     cards = s.cards; bills = s.bills;

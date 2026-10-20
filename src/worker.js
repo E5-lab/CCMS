@@ -65,7 +65,7 @@ async function initDb(db) {
     await db.batch([
       db.prepare(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pass_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at INTEGER NOT NULL)`),
       db.prepare(`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at INTEGER NOT NULL)`),
-      db.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, bank TEXT, last4 TEXT, billingDay INTEGER, dueDay INTEGER, gracePeriod INTEGER, \`limit\` REAL, color TEXT, image TEXT, closed INTEGER NOT NULL DEFAULT 0, closedAt TEXT, points INTEGER, annual_fee INTEGER, annual_fee_date TEXT, deleted INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, bank TEXT, last4 TEXT, billingDay INTEGER, dueDay INTEGER, gracePeriod INTEGER, \`limit\` REAL, color TEXT, image TEXT, closed INTEGER NOT NULL DEFAULT 0, closedAt TEXT, points INTEGER, annual_fee INTEGER, annual_fee_date TEXT, annual_fee_type TEXT DEFAULT 'amount', annual_fee_swipe INTEGER, annual_fee_points INTEGER, deleted INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`),
       db.prepare(`CREATE TABLE IF NOT EXISTS bills (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', cardId TEXT NOT NULL, period TEXT NOT NULL, statement REAL, paid REAL, status TEXT, dueDate TEXT, note TEXT, deleted INTEGER NOT NULL DEFAULT 0, updatedAt INTEGER NOT NULL)`),
       db.prepare(`CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_cards_owner ON cards(owner)`),
@@ -74,6 +74,13 @@ async function initDb(db) {
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`),
       db.prepare(`CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)`),
     ]);
+    // 兼容已有数据库：补充新列（年费类型/刷卡次数/积分兑换）。逐条执行并吞掉“列已存在”的错误。
+    const alters = [
+      `ALTER TABLE cards ADD COLUMN annual_fee_type TEXT DEFAULT 'amount'`,
+      `ALTER TABLE cards ADD COLUMN annual_fee_swipe INTEGER`,
+      `ALTER TABLE cards ADD COLUMN annual_fee_points INTEGER`,
+    ];
+    await Promise.all(alters.map(sql => db.prepare(sql).run().then(() => 1).catch(() => 0)));
   })();
   return dbInitPromise;
 }
@@ -141,10 +148,11 @@ async function applyUpserts(db, owner, kind, rows, now) {
     if (existing && Number(existing.updatedAt) > ru) continue; // 服务端更新则跳过
     if (kind === 'cards') {
       await db.prepare(`INSERT OR REPLACE INTO cards
-        (id, owner, name, bank, last4, billingDay, dueDay, gracePeriod, \`limit\`, color, image, closed, closedAt, points, annual_fee, annual_fee_date, deleted, updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`)
+        (id, owner, name, bank, last4, billingDay, dueDay, gracePeriod, \`limit\`, color, image, closed, closedAt, points, annual_fee, annual_fee_date, annual_fee_type, annual_fee_swipe, annual_fee_points, deleted, updatedAt)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)`)
         .bind(r.id, owner, r.name, r.bank ?? null, r.last4 ?? null, num(r.billingDay), num(r.dueDay), num(r.gracePeriod), num(r.limit),
-          r.color ?? null, r.image ?? null, r.closed ? 1 : 0, r.closedAt ?? null, num(r.points), num(r.annual_fee), r.annual_fee_date ?? null, ru || now).run();
+          r.color ?? null, r.image ?? null, r.closed ? 1 : 0, r.closedAt ?? null, num(r.points), num(r.annual_fee), r.annual_fee_date ?? null,
+          r.annual_fee_type || 'amount', num(r.annual_fee_swipe), num(r.annual_fee_points), ru || now).run();
     } else {
       await db.prepare(`INSERT OR REPLACE INTO bills
         (id, owner, cardId, period, statement, paid, status, dueDate, note, deleted, updatedAt)

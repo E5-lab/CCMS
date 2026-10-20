@@ -41,7 +41,16 @@ function safeImage(v) {
   if (/^https?:\/\//i.test(v)) return v.replace(/['"()\\]/g, '');
   return '';
 }
-function imgCss(v) { const s = safeImage(v); return s ? `url("${s}")` : ''; }
+// 注意：必须用单引号包裹 url，否则与外层 style="..." 的双引号互相截断，导致图片无法显示
+function imgCss(v) { const s = safeImage(v); return s ? `url('${s}')` : ''; }
+// 卡面样式：有图用背景图（带背景色兜底），无图用纯色
+function cardFaceStyle(c) {
+  const color = c.color || '#4f46e5';
+  const img = imgCss(c.image);
+  return img
+    ? `background-color:${color};background-image:${img};background-size:cover;background-position:center;background-repeat:no-repeat`
+    : `background:${color}`;
+}
 
 // 备份文件校验：结构 + 类型 + 字段裁剪（并做卡面 URL 白名单清洗）
 function validateBackup(d) {
@@ -53,6 +62,8 @@ function validateBackup(d) {
     gracePeriod: Number(c.gracePeriod) || null, limit: Number(c.limit) || null, color: String(c.color || '#4f46e5'),
     image: safeImage(c.image), closed: !!c.closed, closedAt: String(c.closedAt || ''),
     points: Number(c.points) || null, annual_fee: Number(c.annual_fee) || null, annual_fee_date: String(c.annual_fee_date || ''),
+    annual_fee_type: c.annual_fee_type === 'swipe' || c.annual_fee_type === 'points' ? c.annual_fee_type : 'amount',
+    annual_fee_swipe: Number(c.annual_fee_swipe) || null, annual_fee_points: Number(c.annual_fee_points) || null,
     updatedAt: Number(c.updatedAt) || Date.now(),
   });
   const cleanBill = (b) => ({
@@ -128,3 +139,77 @@ function monthOptions(selM) {
   return Array.from({ length: 12 }, (_, i) => i + 1)
     .map(m => `<option value="${m}" ${m === selM ? 'selected' : ''}>${m} 月</option>`).join('');
 }
+
+/* ------------------------------- 主题（亮/暗） ------------------------------- */
+function getTheme() { return localStorage.getItem('ccms.theme') || 'light'; }
+function setTheme(theme) {
+  localStorage.setItem('ccms.theme', theme);
+  document.documentElement.setAttribute('data-theme', theme);
+}
+function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
+
+/* ------------------------------- 昵称（账户显示名） ------------------------------- */
+function getNickname() { return localStorage.getItem('ccms.nickname') || ''; }
+function setNickname(n) { localStorage.setItem('ccms.nickname', n || ''); }
+
+/* ------------------------------- 总授信额度：同银行取最高，不叠加 ------------------------------- */
+function totalLimitByBank(list) {
+  const byBank = {};
+  list.forEach(c => {
+    const k = (c.bank || '').trim() || '未分类';
+    const lim = Number(c.limit) || 0;
+    if (!byBank[k] || lim > byBank[k]) byBank[k] = lim;
+  });
+  return Object.values(byBank).reduce((s, v) => s + v, 0);
+}
+
+/* ------------------------------- 多语言（i18n） ------------------------------- */
+const I18N = {
+  zh: {
+    overview: '概览', cards: '信用卡', closed: '已注销', monthly: '月度账单', annual: '年度汇总', history: '历年汇总', settings: '设置',
+    appName: 'CCMS', addCard: '+ 新增信用卡', addBill: '+ 录入账单', loginReg: '登录 / 注册',
+    accountSettings: '账户设置', logout: '退出登录', export: '导出备份', import: '导入备份', importCsv: '导入 CSV 账单',
+    clearAll: '清空所有数据', pullNow: '立即拉取', enablePush: '开启还款提醒',
+    storageData: '数据存储与账户', dataMgmt: '数据管理', dangerOps: '危险操作', about: '关于',
+    localStore: '本地存储', cloudStore: '云端账户（D1）',
+    activeCards: '有效信用卡', totalLimit: '总授信额度', sameBankMax: '同银行取最高',
+    monthBill: '本月账单', unpaid: '未还', yearBill: '本年累计账单', upcoming: '待还提醒',
+    recentDue: '最近待还', noDue: '暂无待还账单', myCards: '我的信用卡', tapCardHint: '点击卡片查看/管理',
+    nickname: '昵称', email: '邮箱', password: '密码', saveNick: '保存昵称', theme: '主题', language: '语言',
+    light: '浅色', dark: '深色', zh: '中文', en: 'English',
+    cardName: '卡片名称', bank: '银行', last4: '卡号后 4 位', billingDay: '账单日', dueDay: '还款日',
+    gracePeriod: '免息期（天）', limit: '信用额度', points: '积分余额', feeType: '年费类型',
+    feeAmount: '年费金额（元）', feeSwipe: '免年费刷卡次数', feePoints: '免年费所需积分', feeDate: '年费日期（每年）',
+    colorTag: '颜色标签', colorPreview: '颜色预览', cardImage: '卡面图片（本地上传 或 图床链接，二选一）',
+    closed: '已注销（移至「已注销」模块）', closedAt: '注销日期', cancel: '取消', save: '保存',
+    newCard: '新增信用卡', editCard: '编辑信用卡', uploadHint: '上传卡面图片（可选）',
+    billOf: '账单月份', stmtAmt: '本期账单金额', paidAmt: '已还金额', billStatus: '还款状态', dueDate: '还款日', note: '备注',
+    newBill: '录入账单', editBill: '编辑账单', auto: '自动',
+    feeTypeAmount: '固定金额', feeTypeSwipe: '刷卡免年费', feeTypePoints: '积分兑换免年费',
+  },
+  en: {
+    overview: 'Overview', cards: 'Cards', closed: 'Closed', monthly: 'Monthly', annual: 'Annual', history: 'History', settings: 'Settings',
+    appName: 'CCMS', addCard: '+ Add Card', addBill: '+ Add Bill', loginReg: 'Login / Register',
+    accountSettings: 'Account Settings', logout: 'Log out', export: 'Export', import: 'Import', importCsv: 'Import CSV',
+    clearAll: 'Clear All Data', pullNow: 'Sync Now', enablePush: 'Enable Reminders',
+    storageData: 'Storage & Account', dataMgmt: 'Data Management', dangerOps: 'Danger Zone', about: 'About',
+    localStore: 'Local Storage', cloudStore: 'Cloud Account (D1)',
+    activeCards: 'Active Cards', totalLimit: 'Total Credit', sameBankMax: 'Max per bank',
+    monthBill: 'This Month', unpaid: 'Unpaid', yearBill: 'YTD Billed', upcoming: 'Due Soon',
+    recentDue: 'Upcoming Payments', noDue: 'No upcoming bills', myCards: 'My Cards', tapCardHint: 'Tap a card to manage',
+    nickname: 'Nickname', email: 'Email', password: 'Password', saveNick: 'Save Nickname', theme: 'Theme', language: 'Language',
+    light: 'Light', dark: 'Dark', zh: '中文', en: 'English',
+    cardName: 'Card Name', bank: 'Bank', last4: 'Last 4 Digits', billingDay: 'Statement Day', dueDay: 'Due Day',
+    gracePeriod: 'Grace (days)', limit: 'Credit Limit', points: 'Points', feeType: 'Annual Fee Type',
+    feeAmount: 'Fee Amount', feeSwipe: 'Swipes to Waive', feePoints: 'Points to Waive', feeDate: 'Fee Date (each year)',
+    colorTag: 'Color Tag', colorPreview: 'Color Preview', cardImage: 'Card Image (upload or image URL)',
+    closed: 'Closed (move to Closed)', closedAt: 'Closed Date', cancel: 'Cancel', save: 'Save',
+    newCard: 'Add Card', editCard: 'Edit Card', uploadHint: 'Upload card image (optional)',
+    billOf: 'Billing Month', stmtAmt: 'Statement', paidAmt: 'Paid', billStatus: 'Status', dueDate: 'Due Date', note: 'Note',
+    newBill: 'Add Bill', editBill: 'Edit Bill', auto: 'Auto',
+    feeTypeAmount: 'Fixed Amount', feeTypeSwipe: 'Waived by Swipes', feeTypePoints: 'Waived by Points',
+  },
+};
+let lang = localStorage.getItem('ccms.lang') || 'zh';
+function t(k) { return (I18N[lang] && I18N[lang][k] != null) ? I18N[lang][k] : (I18N.zh[k] != null ? I18N.zh[k] : k); }
+function setLang(l) { lang = l; localStorage.setItem('ccms.lang', l); if (typeof render === 'function') render(); }

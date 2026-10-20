@@ -1,11 +1,12 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>CCMS · 信用卡账单管理</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#4f46e5" />
+  <meta name="color-scheme" content="light dark" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="CCMS" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
@@ -36,9 +37,13 @@
       <header class="topbar">
         <h1 id="pageTitle">概览</h1>
         <div id="topActions" class="top-actions"></div>
-        <div id="accountArea" class="account-area"></div>
+        <div class="topbar-right">
+          <button id="themeBtn" class="icon-btn" title="切换主题" aria-label="切换主题">🌙</button>
+          <select id="langSel" class="lang-sel" title="语言" aria-label="语言" style="width:auto;padding:6px 8px"></select>
+          <div id="accountArea" class="account-area"></div>
+        </div>
       </header>
-      <section id="viewRoot" class="view-root"></section>
+      <section id="viewRoot" class="viewRoot"></section>
     </main>
   </div>
 

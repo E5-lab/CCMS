@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS cards (
   points      INTEGER,
   annual_fee  INTEGER,
   annual_fee_date TEXT,
+  annual_fee_type   TEXT DEFAULT 'amount',
+  annual_fee_swipe  INTEGER,
+  annual_fee_points INTEGER,
   deleted     INTEGER NOT NULL DEFAULT 0,
   updatedAt   INTEGER NOT NULL
 );

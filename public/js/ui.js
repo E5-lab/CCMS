@@ -5,13 +5,14 @@
  * ========================================================================= */
 
 const TITLES = {
-  dashboard: '概览', cards: '信用卡', closed: '已注销', monthly: '月度账单',
-  annual: '年度汇总', history: '历年汇总', settings: '设置',
+  dashboard: t('overview'), cards: t('cards'), closed: t('closed'), monthly: t('monthly'),
+  annual: t('annual'), history: t('history'), settings: t('settings'),
 };
 
 function render() {
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  document.getElementById('pageTitle').textContent = TITLES[view];
+  const navText = { dashboard: t('overview'), cards: t('cards'), closed: t('closed'), monthly: t('monthly'), annual: t('annual'), history: t('history'), settings: t('settings') };
+  document.querySelectorAll('.nav-item').forEach(b => { b.classList.toggle('active', b.dataset.view === view); b.textContent = navText[b.dataset.view]; });
+  document.getElementById('pageTitle').textContent = navText[view];
   renderAccountArea();   // 右上角账户区（主流站点布局）
   const root = document.getElementById('viewRoot');
   const actions = document.getElementById('topActions');
@@ -43,16 +44,16 @@ function renderDashboard() {
     .slice(0, 5);
 
   const act = activeCards();
-  const totalLimit = act.reduce((s, c) => s + (Number(c.limit) || 0), 0);
+  const totalLimit = totalLimitByBank(act); // 同银行取最高，不叠加
   const yearTotal = bills
     .filter(b => b.period.startsWith(String(sel.year)))
     .reduce((s, b) => s + (Number(b.statement) || 0), 0);
 
   const stats = [
-    { label: '有效信用卡', value: act.length, sub: `总额度 ${money(totalLimit)}` },
-    { label: `${sel.year}年${sel.month}月账单`, value: money(monthTotal), sub: `未还 ${money(monthUnpaid)}` },
-    { label: `${sel.year}年累计账单`, value: money(yearTotal), sub: '本年截至目前' },
-    { label: '待还提醒', value: upcoming.length, sub: '笔即将到期' },
+    { label: t('activeCards'), value: act.length, sub: `${t('totalLimit')} ${money(totalLimit)}` },
+    { label: `${sel.year}${t('monthBill')}`, value: money(monthTotal), sub: `${t('unpaid')} ${money(monthUnpaid)}` },
+    { label: `${sel.year}${t('yearBill')}`, value: money(yearTotal), sub: t('yearBill') },
+    { label: t('upcoming'), value: upcoming.length, sub: t('upcoming') },
   ];
 
   let html = `<div class="stat-grid">` + stats.map(s => `
@@ -62,11 +63,17 @@ function renderDashboard() {
       <div class="sub">${s.sub}</div>
     </div>`).join('') + `</div>`;
 
-  html += `<div class="panel"><div class="panel-title">最近待还</div>`;
+  // 我的信用卡（卡面墙，点击跳转）
+  if (act.length) {
+    html += `<div class="panel"><div class="panel-title">${t('myCards')} · ${t('tapCardHint')}</div>
+      <div class="card-list">${act.map(c => ccCardHtml(c, true)).join('')}</div></div>`;
+  }
+
+  html += `<div class="panel"><div class="panel-title">${t('recentDue')}</div>`;
   if (upcoming.length === 0) {
-    html += `<div class="empty"><div class="big">✅</div>暂无待还账单</div>`;
+    html += `<div class="empty"><div class="big">✅</div>${t('noDue')}</div>`;
   } else {
-    html += `<table><thead><tr><th>信用卡</th><th>账单月份</th><th>本期账单</th><th>已还</th><th>还款日</th><th>状态</th></tr></thead><tbody>`;
+    html += `<div class="table-wrap"><table><thead><tr><th>${t('cards')}</th><th>${t('billOf')}</th><th>${t('stmtAmt')}</th><th>已还</th><th>还款日</th><th>状态</th></tr></thead><tbody>`;
     html += upcoming.map(b => {
       const c = cardById(b.cardId);
       return `<tr>
@@ -76,19 +83,23 @@ function renderDashboard() {
         <td><span class="badge ${statusClass(b.status)}">${statusText(b.status)}</span></td>
       </tr>`;
     }).join('');
-    html += `</tbody></table>`;
+    html += `</tbody></table></div>`;
   }
   html += `</div>`;
   return html;
 }
 
 /* ------------------------------- 信用卡（有效） ------------------------------- */
-function ccCardHtml(c) {
-  const bg = imgCss(c.image)
-    ? `background-image:${imgCss(c.image)};background-size:cover;background-position:center`
-    : `background:${esc(c.color || '#4f46e5')}`;
+function feeText(c) {
+  if (c.annual_fee_type === 'swipe') return `刷满 ${esc(c.annual_fee_swipe || '?')} 次免年费`;
+  if (c.annual_fee_type === 'points') return `${esc(c.annual_fee_points || '?')} 积分免年费`;
+  if (c.annual_fee) return `年费 ${money(c.annual_fee)}`;
+  return '';
+}
+function ccCardHtml(c, navigable) {
   const grace = c.gracePeriod ? ` · 免息期 ${esc(c.gracePeriod)} 天` : '';
-  return `<div class="cc-card" style="${bg}">
+  const fee = feeText(c);
+  return `<div class="cc-card" style="${cardFaceStyle(c)}" data-go-card="${c.id}">
     <div class="cc-overlay"></div>
     <div class="cc-actions">
       <button data-edit-card="${c.id}" title="编辑">✎</button>
@@ -101,6 +112,7 @@ function ccCardHtml(c) {
     <div>
       <div class="cc-bank">${esc(c.name)}</div>
       <div class="cc-meta">账单日 ${esc(c.billingDay) || '—'} · 还款日 ${esc(c.dueDay) || '—'} · 额度 ${money(c.limit)}${grace}</div>
+      ${fee ? `<div class="cc-meta">${fee}</div>` : ''}
     </div>
   </div>`;
 }
@@ -113,7 +125,7 @@ function renderCards() {
   return `<div class="card-list">${act.map(ccCardHtml).join('')}</div>`;
 }
 function renderCardsActions(actions) {
-  actions.innerHTML = `<button class="btn primary" id="addCardBtn">+ 新增信用卡</button>`;
+  actions.innerHTML = `<button class="btn primary" id="addCardBtn">${t('addCard')}</button>`;
 }
 
 /* ------------------------------- 已注销 ------------------------------- */
@@ -123,9 +135,8 @@ function renderClosed() {
     return `<div class="empty"><div class="big">🗂️</div>暂无已注销的信用卡。注销的卡片会出现在这里，保留你的玩卡经历。</div>`;
   }
   const items = closed.map(c => {
-    const bg = imgCss(c.image) ? `background-image:${imgCss(c.image)};background-size:cover;background-position:center` : `background:${esc(c.color || '#4f46e5')}`;
     const cnt = bills.filter(b => b.cardId === c.id).length;
-    return `<div class="cc-card closed-card" style="${bg}">
+    return `<div class="cc-card closed-card" style="${cardFaceStyle(c)}">
       <div class="cc-overlay"></div>
       <div class="cc-actions">
         <button data-restore-card="${c.id}" title="恢复">↩</button>
@@ -147,16 +158,19 @@ function renderClosed() {
 
 /* ------------------------------- 月度账单 ------------------------------- */
 function renderMonthlyControls(actions) {
+  const back = focusCardId ? `<button class="btn" id="backCardsBtn">← ${t('cards')}</button>` : '';
   actions.innerHTML = `
     <div class="controls">
+      ${back}
       <select id="yearSel">${yearOptions(sel.year)}</select>
       <select id="monthSel">${monthOptions(sel.month)}</select>
-      <button class="btn primary" id="addBillBtn">+ 录入账单</button>
+      <button class="btn primary" id="addBillBtn">${t('addBill')}</button>
     </div>`;
 }
 function renderMonthly() {
   const ym = monthKey(sel.year, sel.month);
-  const act = activeCards();
+  let act = activeCards();
+  if (focusCardId) act = act.filter(c => c.id === focusCardId);
   if (act.length === 0) {
     return `<div class="empty"><div class="big">💳</div>请先在「信用卡」中添加卡片</div>`;
   }
@@ -280,35 +294,41 @@ function updateSyncState() {
   }
 }
 
-// 右上角账户区：登录态显示账户头像+邮箱+下拉菜单；未登录显示「登录/注册」入口
+// 右上角账户区：登录态显示昵称头像 + 下拉菜单；未登录显示「登录/注册」入口
 function renderAccountArea() {
   const el = document.getElementById('accountArea');
   if (!el) return;
   if (Store.isCloud) {
-    const initial = (Store.email || '?').trim().charAt(0).toUpperCase() || '?';
+    const nick = getNickname() || Store.email;
+    const initial = (nick || '?').trim().charAt(0).toUpperCase() || '?';
     el.innerHTML = `<div class="account-chip" id="acChip">
         <span class="account-avatar">${esc(initial)}</span>
-        <span class="account-email">${esc(Store.email)}</span>
+        <span class="account-email">${esc(nick)}</span>
         <span class="account-caret">▾</span>
       </div>
       <div class="account-menu" id="acMenu" style="display:none">
-        <button id="acSettings">账户设置</button>
-        <button id="acLogout">退出登录</button>
+        <button id="acSettings">${t('accountSettings')}</button>
+        <button id="acLogout">${t('logout')}</button>
       </div>`;
     const chip = document.getElementById('acChip');
     const menu = document.getElementById('acMenu');
-    chip.onclick = (e) => { e.stopPropagation(); menu.style.display = (menu.style.display === 'none') ? 'block' : 'none'; };
-    document.getElementById('acSettings').onclick = () => { view = 'settings'; render(); };
+    chip.onclick = (e) => {
+      e.stopPropagation();
+      const open = menu.style.display === 'block';
+      menu.style.display = open ? 'none' : 'block';
+      chip.classList.toggle('open', !open);
+    };
+    document.getElementById('acSettings').onclick = () => { menu.style.display = 'none'; chip.classList.remove('open'); view = 'settings'; render(); };
     document.getElementById('acLogout').onclick = async () => {
       await Auth.logout(Store.session);
       Store.session = ''; Store.email = '';
       localStorage.removeItem(LS.session); localStorage.removeItem(LS.email);
-      menu.style.display = 'none';
+      menu.style.display = 'none'; chip.classList.remove('open');
       updateSyncState(); renderAccountArea(); render();
     };
-    document.addEventListener('click', () => { menu.style.display = 'none'; }, { once: true });
+    setTimeout(() => document.addEventListener('click', () => { menu.style.display = 'none'; chip.classList.remove('open'); }, { once: true }), 0);
   } else {
-    el.innerHTML = `<button class="btn sm" id="acLogin">登录 / 注册</button>`;
+    el.innerHTML = `<button class="btn sm" id="acLogin">${t('loginReg')}</button>`;
     document.getElementById('acLogin').onclick = () => { view = 'settings'; render(); };
   }
 }
@@ -322,44 +342,71 @@ function renderSettings() {
            <div>已登录账户</div>
            <div class="desc">${esc(Store.email)} · 多设备用同一账号自动同步</div>
          </div>
-         <button class="btn" id="logoutBtn">退出登录</button>
+         <button class="btn" id="logoutBtn">${t('logout')}</button>
+       </div>
+       <div class="setting-row">
+         <div>
+           <div>${t('nickname')}</div>
+           <div class="desc">显示在头像与账户区，默认使用邮箱前缀。</div>
+         </div>
+         <div class="color-row">
+           <input id="nickInput" value="${esc(getNickname())}" placeholder="${esc((Store.email || '').split('@')[0])}" style="max-width:200px">
+           <button class="btn" id="saveNickBtn">${t('saveNick')}</button>
+         </div>
        </div>`
     : `<div class="setting-row">
          <div>
-           <div style="margin-bottom:8px">邮箱</div>
+           <div style="margin-bottom:8px">${t('email')}</div>
            <input id="emailInput" placeholder="you@example.com" style="max-width:240px" value="${esc(Store.email)}">
-           <div style="margin:8px 0 4px">密码</div>
+           <div style="margin:8px 0 4px">${t('password')}</div>
            <input id="pwInput" type="password" placeholder="至少 6 位" style="max-width:240px">
            <div class="desc" style="margin-top:6px">注册即用该邮箱+密码，无需验证码；登录后本地数据会自动上传到云端。</div>
          </div>
          <div style="display:flex;flex-direction:column;gap:10px">
-           <button class="btn primary" id="registerBtn">注册并启用云端</button>
-           <button class="btn" id="loginBtn">登录已有账号</button>
+           <button class="btn primary" id="registerBtn">${t('cloudStore')}</button>
+           <button class="btn" id="loginBtn">${t('loginReg')}</button>
          </div>
        </div>`;
   return `<div class="panel">
-    <div class="panel-title">数据存储与账户</div>
+    <div class="panel-title">${t('storageData')}</div>
     <div class="setting-row">
       <div>
         <div>
-          <label class="switch"><input type="radio" name="mode" value="local" ${!cloud ? 'checked' : ''}> 本地存储</label>
-          <label class="switch"><input type="radio" name="mode" value="cloud" ${cloud ? 'checked' : ''}> 云端账户（D1）</label>
+          <label class="switch"><input type="radio" name="mode" value="local" ${!cloud ? 'checked' : ''}> ${t('localStore')}</label>
+          <label class="switch"><input type="radio" name="mode" value="cloud" ${cloud ? 'checked' : ''}> ${t('cloudStore')}</label>
         </div>
-        <div class="desc">本地存储：数据仅存于当前浏览器。云端账户：注册/登录后在 Cloudflare D1 多设备同步，按账号隔离。</div>
+        <div class="desc">${t('localStore')}：数据仅存于当前浏览器。${t('cloudStore')}：注册/登录后在 Cloudflare D1 多设备同步，按账号隔离。</div>
       </div>
     </div>
     ${accountBlock}
     ${loggedIn ? `<div class="setting-row" style="border:none">
       <div class="desc">开启后，每天 09:00 系统会通过浏览器推送提醒临近 3 天内还款的账单（需授予通知权限）。</div>
       <div style="display:flex;gap:10px">
-        <button class="btn" id="pushBtn">开启还款提醒</button>
-        <button class="btn" id="pullBtn">立即拉取</button>
+        <button class="btn" id="pushBtn">${t('enablePush')}</button>
+        <button class="btn" id="pullBtn">${t('pullNow')}</button>
       </div>
     </div>` : `<div class="setting-row" style="border:none">
       <div style="display:flex;gap:10px">
-        <button class="btn" id="pullBtn">立即拉取</button>
+        <button class="btn" id="pullBtn">${t('pullNow')}</button>
       </div>
     </div>`}
+  </div>
+  <div class="panel">
+    <div class="panel-title">${t('theme')} & ${t('language')}</div>
+    <div class="setting-row">
+      <div>${t('theme')}</div>
+      <div class="color-row">
+        <label class="switch"><input type="radio" name="theme" value="light" ${getTheme() !== 'dark' ? 'checked' : ''}> ${t('light')}</label>
+        <label class="switch"><input type="radio" name="theme" value="dark" ${getTheme() === 'dark' ? 'checked' : ''}> ${t('dark')}</label>
+      </div>
+    </div>
+    <div class="setting-row" style="border:none">
+      <div>${t('language')}</div>
+      <select id="themeLangSel" style="width:auto">
+        <option value="zh" ${lang === 'zh' ? 'selected' : ''}>${t('zh')}</option>
+        <option value="en" ${lang === 'en' ? 'selected' : ''}>${t('en')}</option>
+      </select>
+    </div>
   </div>
   <div class="panel">
     <div class="panel-title">数据管理</div>
@@ -390,6 +437,8 @@ function bindViewEvents() {
   if (yearSel) yearSel.onchange = e => { sel.year = +e.target.value; render(); };
   if (monthSel) monthSel.onchange = e => { sel.month = +e.target.value; render(); };
   if (yearSel2) yearSel2.onchange = e => { sel.year = +e.target.value; render(); };
+  const backCardsBtn = document.getElementById('backCardsBtn');
+  if (backCardsBtn) backCardsBtn.onclick = () => { focusCardId = ''; render(); };
 
   const addBillBtn = document.getElementById('addBillBtn');
   if (addBillBtn) addBillBtn.onclick = () => openBillModal(null);
@@ -552,4 +601,30 @@ function bindViewEvents() {
       reader.readAsText(f);
     };
   }
+
+  // 设置页：昵称保存
+  const saveNickBtn = document.getElementById('saveNickBtn');
+  if (saveNickBtn) saveNickBtn.onclick = () => {
+    const v = document.getElementById('nickInput').value.trim();
+    setNickname(v);
+    renderAccountArea();
+    alert('昵称已保存。');
+  };
+  // 设置页：主题切换
+  document.querySelectorAll('input[name="theme"]').forEach(r => {
+    r.onchange = () => { if (r.checked) { setTheme(r.value); updateThemeBtn(); } };
+  });
+  // 设置页：语言切换
+  const themeLangSel = document.getElementById('themeLangSel');
+  if (themeLangSel) themeLangSel.onchange = () => setLang(themeLangSel.value);
+
+  // 卡面点击：概览页跳转月度账单（聚焦该卡）；其它页打开编辑
+  document.querySelectorAll('[data-go-card]').forEach(el => {
+    el.onclick = (e) => {
+      if (e.target.closest('.cc-actions')) return; // 操作按钮不触发跳转
+      const id = el.dataset.goCard;
+      if (view === 'dashboard') { focusCardId = id; view = 'monthly'; render(); }
+      else openCardModal(id);
+    };
+  });
 }
