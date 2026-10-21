@@ -844,7 +844,7 @@ input[type="file"] { padding: 6px; font-size: 12px; cursor: pointer; }
 .dash-hero.tone-overdue::before { background: var(--danger); }
 .dash-hero.tone-soon::before { background: var(--warn); }
 .dash-hero.tone-normal::before { background: var(--ok); }
-.dash-hero.tone-none::before { background: var(--ink-faint); }
+.dash-hero.tone-none::before { background: var(--ok); }
 .dh-left { flex: 1 1 200px; min-width: 0; }
 .dh-lab { font-size: 12.5px; color: var(--ink-soft); font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
 .dh-big {

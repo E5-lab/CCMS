@@ -27,17 +27,23 @@ function updateThemeBtn() {
   const btn = document.getElementById('themeBtn');
   if (btn) btn.innerHTML = svgIcon(getTheme() === 'dark' ? 'sun' : 'moon', '', 18);
 }
+// 语言切换按钮：与主题按钮同款图标样式，点击在中/英之间直接切换
+function updateLangBtn() {
+  const btn = document.getElementById('langBtn');
+  if (!btn) return;
+  btn.innerHTML = svgIcon('globe', '', 18);
+  const tip = lang === 'zh' ? '切换到 English' : 'Switch to 中文';
+  btn.title = tip;
+  btn.setAttribute('aria-label', tip);
+}
 function initThemeLang() {
   setTheme(getTheme());
   updateThemeBtn();
   const themeBtn = document.getElementById('themeBtn');
   if (themeBtn) themeBtn.onclick = () => { toggleTheme(); updateThemeBtn(); };
-  const langSel = document.getElementById('langSel');
-  if (langSel) {
-    langSel.innerHTML = `<option value="zh">${t('zh')}</option><option value="en">${t('en')}</option>`;
-    langSel.value = lang;
-    langSel.onchange = () => setLang(langSel.value);
-  }
+  updateLangBtn();
+  const langBtn = document.getElementById('langBtn');
+  if (langBtn) langBtn.onclick = () => { setLang(lang === 'zh' ? 'en' : 'zh'); };
 }
 
 /* ------------------------------- 多设备自动同步 ------------------------------- */

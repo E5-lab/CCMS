@@ -28,6 +28,7 @@ function render() {
   const brandLogo = document.getElementById('brandLogo');
   if (brandLogo && !brandLogo.firstChild) brandLogo.innerHTML = svgIcon('cards');
   document.getElementById('pageTitle').textContent = navText[view];
+  if (typeof updateLangBtn === 'function') updateLangBtn(); // 顶栏语言按钮提示随当前语言更新
   renderAccountArea();   // 右上角账户区（主流站点布局）
   const root = document.getElementById('viewRoot');
   const actions = document.getElementById('topActions');
