@@ -11,6 +11,7 @@ let view = 'dashboard';
 let focusCardId = ''; // 概览页点击卡面后，在账单月度视图中聚焦该卡
 let billPartition = 'monthly'; // 账单模块内的分区：monthly | annual
 let cardPartition = 'active';  // 信用卡模块内的分区：active | closed
+let cardView = localStorage.getItem(LS.cardView) || 'card'; // 信用卡视图：card | list | image（本地记忆）
 const now = new Date();
 const sel = { year: now.getFullYear(), month: now.getMonth() + 1 };
 

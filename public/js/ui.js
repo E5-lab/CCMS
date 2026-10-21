@@ -22,6 +22,9 @@ function render() {
     const lab = b.querySelector('.nav-label'); if (lab) lab.textContent = navText[b.dataset.view];
     const ico = b.querySelector('.nav-ico'); if (ico && !ico.firstChild) ico.innerHTML = svgIcon(b.dataset.view);
   });
+  // 手机端一级菜单横向可滚：把当前激活项滚入视野（滚动条已隐藏，触摸仍可滑动）
+  const actNav = document.querySelector('.nav-item.active');
+  if (actNav && actNav.scrollIntoView) { try { actNav.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* 旧浏览器忽略 */ } }
   const brandLogo = document.getElementById('brandLogo');
   if (brandLogo && !brandLogo.firstChild) brandLogo.innerHTML = svgIcon('cards');
   document.getElementById('pageTitle').textContent = navText[view];
@@ -216,13 +219,75 @@ function cardsSeg() {
   </div>`;
 }
 
+// 视图切换：列表 / 卡片 / 图片（选择持久化到 localStorage）
+function cardViewSeg() {
+  const modes = [['list', 'list', t('viewList')], ['card', 'cards', t('viewCard')], ['image', 'image', t('viewImage')]];
+  return `<div class="seg seg-view" role="group" aria-label="${t('viewCard')}">` +
+    modes.map(([v, ico, label]) =>
+      `<button data-cardview="${v}" class="${cardView === v ? 'active' : ''}" title="${label}" aria-label="${label}">${svgIcon(ico, '', 15)}</button>`
+    ).join('') + `</div>`;
+}
+// 信用卡页顶部工具行：分区切换（左） + 视图切换（右）
+function cardsToolbar() { return `<div class="seg-row">${cardsSeg()}${cardViewSeg()}</div>`; }
+
+// 列表视图：一行一卡，信息密度最高
+function ccListRow(c) {
+  return `<tr data-go-card="${c.id}">
+    <td><span class="dot" style="background:${esc(c.color || '#4f46e5')}"></span><b>${esc(c.name)}</b></td>
+    <td>${esc(c.bank || '—')}</td>
+    <td class="mono">•••• ${esc(c.last4 || '****')}</td>
+    <td>${esc(c.billingDay) || '—'}</td>
+    <td>${esc(c.dueDay) || '—'}</td>
+    <td>${money(c.limit)}</td>
+    <td>${esc(c.gracePeriod) || '—'}</td>
+    <td>${esc(feeText(c) || '—')}</td>
+    <td>
+      <button class="btn sm" data-edit-card="${c.id}">编辑</button>
+      <button class="btn sm danger" data-del-card="${c.id}">删除</button>
+    </td>
+  </tr>`;
+}
+function renderCardsList(act) {
+  return `<div class="panel">
+    <div class="panel-head"><div class="panel-title">${t('activeCards')}（${act.length}）</div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>${t('cardName')}</th><th>${t('bank')}</th><th>${t('last4')}</th><th>${t('billingDay')}</th><th>${t('dueDay')}</th><th>${t('limit')}</th><th>${t('gracePeriod')}</th><th>${t('feeLabel')}</th><th>操作</th></tr></thead>
+      <tbody>${act.map(ccListRow).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
+// 图片视图：突出卡面大图（无图回退颜色渐变）
+function ccImageHtml(c) {
+  const isClosed = !!c.closed;
+  const sub = isClosed
+    ? (c.closedAt ? '注销于 ' + esc(c.closedAt) : '已注销')
+    : `账单日 ${esc(c.billingDay) || '—'} · 还款日 ${esc(c.dueDay) || '—'} · 额度 ${money(c.limit)}`;
+  const actions = isClosed
+    ? `<button data-restore-card="${c.id}" title="恢复" aria-label="恢复">${svgIcon('restore')}</button>
+       <button data-purge-card="${c.id}" title="彻底删除" aria-label="彻底删除">${svgIcon('trash')}</button>`
+    : `<button data-edit-card="${c.id}" title="编辑" aria-label="编辑">${svgIcon('edit')}</button>
+       <button data-del-card="${c.id}" title="删除" aria-label="删除">${svgIcon('trash')}</button>`;
+  return `<div class="cc-card img-card${isClosed ? ' closed-card' : ''}" style="${cardFaceStyle(c)}" data-go-card="${c.id}">
+    <div class="cc-overlay"></div>
+    <div class="cc-actions">${actions}</div>
+    <div class="img-card-info">
+      <div class="cc-bank">${esc(c.bank || '未填银行')}</div>
+      <div class="img-card-name">${esc(c.name)}</div>
+      <div class="img-card-sub">${sub}</div>
+    </div>
+  </div>`;
+}
+
 function renderCards() {
-  if (cardPartition === 'closed') return cardsSeg() + renderClosedCards();
+  if (cardPartition === 'closed') return cardsToolbar() + renderClosedCards();
   const act = activeCards();
   if (act.length === 0) {
-    return cardsSeg() + emptyState('cards', '还没有信用卡，点击右上角「新增信用卡」开始');
+    return cardsToolbar() + emptyState('cards', '还没有信用卡，点击右上角「新增信用卡」开始');
   }
-  return cardsSeg() + `<div class="card-list">${act.map(ccCardHtml).join('')}</div>`;
+  if (cardView === 'list') return cardsToolbar() + renderCardsList(act);
+  if (cardView === 'image') return cardsToolbar() + `<div class="card-list img-mode">${act.map(ccImageHtml).join('')}</div>`;
+  return cardsToolbar() + `<div class="card-list">${act.map(ccCardHtml).join('')}</div>`;
 }
 function renderCardsActions(actions) {
   actions.innerHTML = `<button class="btn primary" id="addCardBtn">${t('addCard')}</button>`;
@@ -234,10 +299,37 @@ function renderClosedCards() {
   if (closed.length === 0) {
     return emptyState('archive', '暂无已注销的信用卡。注销的卡片会出现在这里，保留你的玩卡经历。');
   }
-  const items = closed.map(c => {
-    const cnt = bills.filter(b => b.cardId === c.id).length;
-    return `<div class="cc-card closed-card" style="${cardFaceStyle(c)}">
-      <div class="cc-overlay"></div>
+  let body;
+  if (cardView === 'list') {
+    const rows = closed.map(c => {
+      const cnt = bills.filter(b => b.cardId === c.id).length;
+      return `<tr>
+        <td><span class="dot" style="background:${esc(c.color || '#4f46e5')}"></span><b>${esc(c.name)}</b></td>
+        <td>${esc(c.bank || '—')}</td>
+        <td class="mono">•••• ${esc(c.last4 || '****')}</td>
+        <td>${c.closedAt ? esc(c.closedAt) : '—'}</td>
+        <td>${cnt} 笔</td>
+        <td>
+          <button class="btn sm" data-restore-card="${c.id}">恢复</button>
+          <button class="btn sm danger" data-purge-card="${c.id}">彻底删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+    body = `<div class="table-wrap"><table>
+      <thead><tr><th>${t('cardName')}</th><th>${t('bank')}</th><th>${t('last4')}</th><th>${t('closedAt')}</th><th>留存账单</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  } else {
+    const items = closed.map(c => cardView === 'image' ? ccImageHtml(c) : ccClosedCardHtml(c)).join('');
+    body = `<div class="card-list${cardView === 'image' ? ' img-mode' : ''}">${items}</div>`;
+  }
+  return `<div class="panel"><div class="panel-title">已注销信用卡（${closed.length}）</div>${body}</div>`;
+}
+
+// 已注销卡片（卡片视图沿用原卡面样式）
+function ccClosedCardHtml(c) {
+  const cnt = bills.filter(b => b.cardId === c.id).length;
+  return `<div class="cc-card closed-card" style="${cardFaceStyle(c)}">
+    <div class="cc-overlay"></div>
     <div class="cc-chip"></div>
     <div class="cc-actions">
       <button data-restore-card="${c.id}" title="恢复" aria-label="恢复">${svgIcon('restore')}</button>
@@ -255,10 +347,7 @@ function renderClosedCards() {
           <div class="cc-use-p"><span class="cc-use-i" style="width:${usageOf(c).pct}%"></span></div>
         </div>
       </div>
-    </div>`;
-  }).join('');
-  return `<div class="panel"><div class="panel-title">已注销信用卡（${closed.length}）</div>
-    <div class="card-list">${items}</div></div>`;
+  </div>`;
 }
 
 /* ------------------------------- 账单（月度 / 年度 同属一个模块） ------------------------------- */
@@ -591,6 +680,12 @@ function bindViewEvents() {
   document.querySelectorAll('[data-cardtab]').forEach(b => b.onclick = () => {
     cardPartition = b.dataset.cardtab; render();
   });
+  // 信用卡视图切换：列表 / 卡片 / 图片（本地记忆）
+  document.querySelectorAll('[data-cardview]').forEach(b => b.onclick = () => {
+    cardView = b.dataset.cardview;
+    try { localStorage.setItem(LS.cardView, cardView); } catch (e) { /* 隐私模式忽略 */ }
+    render();
+  });
   // 账单模块分区：月度 / 年度
   document.querySelectorAll('[data-billtab]').forEach(b => b.onclick = () => {
     billPartition = b.dataset.billtab; render();
@@ -804,7 +899,7 @@ function bindViewEvents() {
   // 卡面点击：概览页跳转月度账单（聚焦该卡）；其它页打开编辑
   document.querySelectorAll('[data-go-card]').forEach(el => {
     el.onclick = (e) => {
-      if (e.target.closest('.cc-actions')) return; // 操作按钮不触发跳转
+      if (e.target.closest('.cc-actions') || e.target.closest('button')) return; // 操作按钮不触发跳转
       const id = el.dataset.goCard;
       if (view === 'dashboard') { focusCardId = id; view = 'bills'; billPartition = 'monthly'; render(); }
       else openCardModal(id);

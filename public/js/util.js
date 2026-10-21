@@ -7,7 +7,8 @@
 // localStorage 键名集中管理
 const LS = {
   cards: 'ccms.cards.v1', bills: 'ccms.bills.v1', mode: 'ccms.mode',
-  email: 'ccms.email', session: 'ccms.session', cursor: 'ccms.cursor.v2', // v2：旧游标被“超前时间戳”污染，升级键名强制全量重拉一次自愈
+  email: 'ccms.email', session: 'ccms.session', cardView: 'ccms.cardView',
+  cursor: 'ccms.cursor.v2', // v2：旧游标被“超前时间戳”污染，升级键名强制全量重拉一次自愈
 };
 
 /* ------------------------------- 基础工具 ------------------------------- */
@@ -272,6 +273,8 @@ const ICONS = {
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
   info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
   sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
+  list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3.5" y1="6" x2="3.51" y2="6"/><line x1="3.5" y1="12" x2="3.51" y2="12"/><line x1="3.5" y1="18" x2="3.51" y2="18"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
 };
 // 生成内联 SVG 字符串；size 可选（px），cls 追加类名
 function svgIcon(name, cls, size) {
@@ -316,6 +319,7 @@ const I18N = {
     markPaid: '标记为已还', paid: '已还', nextDue: '下一个还款日',
     laterTag: '剩 {n} 天', soonTag: '剩 {n} 天', overdueTag: '逾期 {n} 天',
     avgLabel: '月均', chartAria: '月度账单柱状图',
+    viewList: '列表视图', viewCard: '卡片视图', viewImage: '图片视图',
   },
   en: {
     overview: 'Overview', cards: 'Cards', closed: 'Closed', monthly: 'Monthly', annual: 'Annual', history: 'History', settings: 'Settings',
@@ -351,6 +355,7 @@ const I18N = {
     markPaid: 'Mark paid', paid: 'Paid', nextDue: 'Next due',
     laterTag: '{n}d left', soonTag: '{n}d left', overdueTag: 'Overdue {n}d',
     avgLabel: 'Avg', chartAria: 'Monthly bills bar chart',
+    viewList: 'List View', viewCard: 'Card View', viewImage: 'Image View',
   },
 };
 let lang = localStorage.getItem('ccms.lang') || 'zh';
