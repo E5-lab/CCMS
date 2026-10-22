@@ -42,11 +42,12 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          api-level: 34
-          build-tools: 34.0.0
+      - name: Accept Android SDK licenses & ensure packages
+        # GitHub ubuntu-latest Runner 已预装 Android SDK（$ANDROID_HOME），无需第三方 setup action
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          yes | "$SDKM" "platforms;android-34" "build-tools;34.0.0" > /dev/null
 
       - name: Install npm dependencies
         run: npm install
@@ -70,6 +71,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           cd android
+          chmod +x gradlew
           if [ -n "$SIGNING_KEY" ]; then
             echo "::notice::使用 Release 签名构建"
             ./gradlew assembleRelease \
