@@ -1,6 +1,7 @@
 /* CCMS Service Worker：应用外壳缓存，支持离线访问与 PWA 安装 */
-const CACHE = 'ccms-v1';
-const SHELL = ['./', '/', './index.html', './styles.css', './app.js', './manifest.webmanifest',
+const CACHE = 'ccms-v2';
+const SHELL = ['./', './index.html', './styles.css', './manifest.webmanifest',
+  './js/util.js', './js/api.js', './js/webdav.js', './js/store.js', './js/modals.js', './js/ui.js', './js/app.js',
   './icon-192.png', './icon-512.png', './icon-maskable-192.png', './icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -23,6 +24,8 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(req).catch(() => new Response('{"error":"offline"}', { status: 503, headers: { 'content-type': 'application/json' } })));
     return;
   }
+  // 站外请求（如用户自建 WebDAV）一律直连，不参与外壳缓存，避免读到过期账本
+  if (url.origin !== self.location.origin) return;
   // 应用外壳：缓存优先，回退网络；导航请求回退到 index.html（SPA）
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).catch(() => caches.match('./index.html')));

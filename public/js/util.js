@@ -10,6 +10,8 @@ const LS = {
   email: 'ccms.email', session: 'ccms.session', cardView: 'ccms.cardView',
   cursor: 'ccms.cursor.v2', // v2：旧游标被“超前时间戳”污染，升级键名强制全量重拉一次自愈
   view: 'ccms.view', billTab: 'ccms.billTab', cardTab: 'ccms.cardTab', // 当前导航视图与子分区，刷新后保持
+  webdavUrl: 'ccms.webdav.url', webdavUser: 'ccms.webdav.user', webdavPass: 'ccms.webdav.pass',
+  tomb: 'ccms.sync.tomb', // WebDAV 删除墓碑（防多设备删除丢失）
 };
 
 /* ------------------------------- 基础工具 ------------------------------- */
@@ -322,6 +324,9 @@ const I18N = {
     laterTag: '剩 {n} 天', soonTag: '剩 {n} 天', overdueTag: '逾期 {n} 天',
     avgLabel: '月均', chartAria: '月度账单柱状图',
     viewList: '列表视图', viewCard: '卡片视图', viewImage: '图片视图',
+    webdavStore: 'WebDAV 自建存储', davUrl: 'WebDAV 文件地址', davUser: '用户名', davPass: '密码',
+    davSave: '保存并连接', davSync: '现在同步', davConnected: '已连接 WebDAV',
+    davCors: 'WebDAV 服务器需开启 CORS（Access-Control-Allow-Origin）以允许浏览器跨域访问，否则同步会失败。', davNeedConfig: '请先填写 WebDAV 文件地址、用户名、密码并「保存并连接」。',
   },
   en: {
     overview: 'Overview', cards: 'Cards', closed: 'Closed', monthly: 'Monthly', annual: 'Annual', history: 'History', settings: 'Settings',
@@ -358,6 +363,9 @@ const I18N = {
     laterTag: '{n}d left', soonTag: '{n}d left', overdueTag: 'Overdue {n}d',
     avgLabel: 'Avg', chartAria: 'Monthly bills bar chart',
     viewList: 'List View', viewCard: 'Card View', viewImage: 'Image View',
+    webdavStore: 'WebDAV (Self-hosted)', davUrl: 'WebDAV File URL', davUser: 'Username', davPass: 'Password',
+    davSave: 'Save & Connect', davSync: 'Sync Now', davConnected: 'WebDAV connected',
+    davCors: 'Your WebDAV server must enable CORS (Access-Control-Allow-Origin / -Headers / -Methods) for browser access, otherwise sync will fail.', davNeedConfig: 'Please fill in the WebDAV file URL, username and password, then click "Save & Connect".',
   },
 };
 let lang = localStorage.getItem('ccms.lang') || 'zh';

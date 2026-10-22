@@ -48,17 +48,19 @@ function initThemeLang() {
 }
 
 /* ------------------------------- 多设备自动同步 ------------------------------- */
-// 云端模式下：窗口重新聚焦 / 页面重新可见时，自动拉取云端最新数据
+// 云端 / WebDAV 模式下：窗口重新聚焦 / 页面重新可见时，自动拉取远端最新数据
 let pullTimer = null;
 async function autoPull() {
-  if (!Store.isCloud) return;
+  if (!Store.isCloud && !Store.isWebdav) return;
   try {
     const s = await Store.load();
     cards = s.cards; bills = s.bills;
-    try {
-      const me = await Auth.me();
-      if (me && me.nickname) setNickname(me.nickname);
-    } catch (e) { /* 昵称同步失败不阻断 */ }
+    if (Store.isCloud) {
+      try {
+        const me = await Auth.me();
+        if (me && me.nickname) setNickname(me.nickname);
+      } catch (e) { /* 昵称同步失败不阻断 */ }
+    }
     render();
   } catch (e) { /* 静默失败，下次聚焦再试 */ }
 }

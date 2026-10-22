@@ -527,6 +527,9 @@ function updateSyncState() {
   if (Store.isCloud) {
     el.textContent = '云端账户';
     if (pill) pill.classList.add('remote');
+  } else if (Store.isWebdav) {
+    el.textContent = 'WebDAV 同步';
+    if (pill) pill.classList.add('remote');
   } else {
     el.textContent = '本地存储';
     if (pill) pill.classList.remove('remote');
@@ -573,7 +576,9 @@ function renderAccountArea() {
 }
 
 function renderSettings() {
-  const cloud = Store.mode === 'cloud';
+  const mode = Store.mode;
+  const cloud = mode === 'cloud';
+  const webdav = mode === 'webdav';
   const loggedIn = Store.isCloud;
   const accountBlock = loggedIn
     ? `<div class="setting-row">
@@ -606,19 +611,38 @@ function renderSettings() {
            <button class="btn" id="loginBtn">${t('loginReg')}</button>
          </div>
        </div>`;
+  // WebDAV 自建存储：地址 + 账号密码 + 保存并连接（保存后立即拉取合并一次）
+  const davState = (typeof WebDAV !== 'undefined' && WebDAV.configured)
+    ? `<span class="dav-ok">● ${t('davConnected')}</span> · ${esc(WebDAV.url)}`
+    : t('davNeedConfig');
+  const davBlock = webdav && typeof WebDAV !== 'undefined' ? `
+    <div class="setting-row">
+      <div style="flex:1;min-width:0">
+        <div style="margin-bottom:8px">${t('davUrl')}</div>
+        <input id="davUrlInput" placeholder="https://dav.example.com/ccms/ccms-data.json" style="width:100%;max-width:460px" value="${esc(WebDAV.url)}" autocomplete="off" spellcheck="false">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">
+          <input id="davUserInput" placeholder="${esc(t('davUser'))}" style="max-width:170px" value="${esc(WebDAV.user)}" autocomplete="username">
+          <input id="davPassInput" type="password" placeholder="${esc(t('davPass'))}" style="max-width:170px" value="${esc(WebDAV.pass)}" autocomplete="current-password">
+          <button class="btn primary" id="davSaveBtn">${t('davSave')}</button>
+        </div>
+        <div class="desc" style="margin-top:8px">${davState}</div>
+        <div class="desc" style="margin-top:6px">${t('davCors')}</div>
+      </div>
+    </div>` : '';
   return `<div class="panel">
     <div class="panel-title">${t('storageData')}</div>
     <div class="setting-row">
       <div>
         <div>
-          <label class="switch"><input type="radio" name="mode" value="local" ${!cloud ? 'checked' : ''}> ${t('localStore')}</label>
+          <label class="switch"><input type="radio" name="mode" value="local" ${!cloud && !webdav ? 'checked' : ''}> ${t('localStore')}</label>
           <label class="switch"><input type="radio" name="mode" value="cloud" ${cloud ? 'checked' : ''}> ${t('cloudStore')}</label>
+          <label class="switch"><input type="radio" name="mode" value="webdav" ${webdav ? 'checked' : ''}> ${t('webdavStore')}</label>
         </div>
-        <div class="desc">${t('localStore')}：数据仅存于当前浏览器。${t('cloudStore')}：注册/登录后在 Cloudflare D1 多设备同步，按账号隔离。</div>
+        <div class="desc">${t('localStore')}：数据仅存于当前浏览器。${t('cloudStore')}：注册/登录后在 Cloudflare D1 多设备同步，按账号隔离。${t('webdavStore')}：把账本存到你自己的 WebDAV（坚果云 / Nextcloud / Alist 等），无需服务器，多设备共享同一份文件。</div>
       </div>
     </div>
-    ${accountBlock}
-    ${loggedIn ? `<div class="setting-row" style="border:none">
+    ${webdav ? davBlock : accountBlock}
+    ${loggedIn && !webdav ? `<div class="setting-row" style="border:none">
       <div class="desc">开启后，每天 09:00 系统会通过浏览器推送提醒临近 3 天内还款的账单（需授予通知权限）。</div>
       <div style="display:flex;gap:10px">
         <button class="btn" id="pushBtn">${t('enablePush')}</button>
@@ -626,7 +650,7 @@ function renderSettings() {
       </div>
     </div>` : `<div class="setting-row" style="border:none">
       <div style="display:flex;gap:10px">
-        <button class="btn" id="pullBtn">${t('pullNow')}</button>
+        <button class="btn" id="pullBtn">${webdav ? t('davSync') : t('pullNow')}</button>
       </div>
     </div>`}
   </div>
@@ -743,10 +767,53 @@ function bindViewEvents() {
     }
   });
 
+  // 设置页：存储模式切换（本地 / 云端 / WebDAV）
+  document.querySelectorAll('input[name="mode"]').forEach(r => {
+    r.onchange = () => {
+      if (!r.checked) return;
+      Store.mode = r.value;
+      try { localStorage.setItem(LS.mode, r.value); } catch (e) { /* 隐私模式忽略 */ }
+      updateSyncState(); render();
+    };
+  });
+
+  // 设置页：WebDAV 保存配置并连接（先验证连通性，再拉取合并）
+  const davSaveBtn = document.getElementById('davSaveBtn');
+  if (davSaveBtn) davSaveBtn.onclick = async () => {
+    const url = (document.getElementById('davUrlInput').value || '').trim();
+    const user = document.getElementById('davUserInput').value;
+    const pass = document.getElementById('davPassInput').value;
+    if (!/^https?:\/\//i.test(url)) { alert('请填写完整地址，需以 http:// 或 https:// 开头。'); return; }
+    WebDAV.setConfig(url, user, pass);
+    davSaveBtn.disabled = true;
+    const old = davSaveBtn.textContent;
+    davSaveBtn.textContent = '连接中…';
+    try {
+      await WebDAV.test();
+      const s = await Store._webdavSync();   // 拉取远端并合并，必要时回写
+      cards = s.cards; bills = s.bills;
+      Store.mode = 'webdav';
+      try { localStorage.setItem(LS.mode, 'webdav'); } catch (e) { /* ignore */ }
+      updateSyncState(); render();
+      alert('已连接 WebDAV，本地与远端数据已合并。');
+    } catch (e) {
+      davSaveBtn.disabled = false;
+      davSaveBtn.textContent = old;
+      alert('连接失败：' + e.message);
+    }
+  };
+
   // 设置页：账户 / 拉取（注册/登录/登出在下方单独绑定）
   const pullBtn = document.getElementById('pullBtn');
   if (pullBtn) pullBtn.onclick = async () => {
-    if (!Store.isCloud) { alert('请先在上方切换到「云端账户」并登录。'); return; }
+    if (Store.isWebdav) {
+      try {
+        const s = await Store._webdavSync(); cards = s.cards; bills = s.bills; render();
+        alert('已与 WebDAV 同步。');
+      } catch (e) { alert('同步失败：' + e.message); }
+      return;
+    }
+    if (!Store.isCloud) { alert('请先在上方选择「云端账户」并登录，或切换到「WebDAV 自建存储」。'); return; }
     try {
       const s = await Store.load(); cards = s.cards; bills = s.bills; render();
       alert('已从云端拉取最新数据。');
@@ -816,8 +883,8 @@ function bindViewEvents() {
   // 清空数据（危险操作）
   const resetBtn = document.getElementById('resetBtn');
   if (resetBtn) resetBtn.onclick = async () => {
-    if (!confirm('将清空全部信用卡与账单（含云端），不可恢复，确定？')) return;
-    if (Store.isCloud) {
+    if (!confirm('将清空全部信用卡与账单（云端 / WebDAV 模式下也会同步删除），不可恢复，确定？')) return;
+    if (Store.isCloud || Store.isWebdav) {
       Store.pendingDelete.cards.push(...cards.map(c => c.id));
       Store.pendingDelete.bills.push(...bills.map(b => b.id));
     }

@@ -705,6 +705,7 @@ input[type="file"] { padding: 6px; font-size: 12px; cursor: pointer; }
 }
 .setting-row:last-child { border-bottom: none; }
 .setting-row .desc { font-size: 12px; color: var(--ink-soft); margin-top: 5px; line-height: 1.6; }
+.setting-row .dav-ok { color: var(--ok); font-weight: 600; }
 .kbd {
   display: inline-block; padding: 2px 7px; border: 1px solid var(--line);
   border-radius: 6px; background: var(--surface-3); font-size: 11px; color: var(--ink-soft);

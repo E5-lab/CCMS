@@ -1,7 +1,7 @@
 # CCMS · 信用卡账单管理
 
 > 一个用于记录多张信用卡**月度账单、年度账单、历年账单汇总**的管理工具。
-> 前端为零依赖原生单页应用（按职责拆分为多个经典脚本）；数据存储支持**本地（localStorage）**与**云端账户（Cloudflare D1 + 邮箱密码鉴权）**双模式。
+> 前端为零依赖原生单页应用（按职责拆分为多个经典脚本）；数据存储支持**本地（localStorage）**、**云端账户（Cloudflare D1 + 邮箱密码鉴权）**与**WebDAV 自建存储**三种模式。
 
 ## 功能
 
@@ -15,6 +15,7 @@
 - 💾 **跨设备 / 备份**：「设置」中一键导出 / 导入 JSON 备份，无需任何后端即可在多设备间迁移数据。
 - ☁️ **（可选）云端账户同步**：在 Cloudflare 后台绑定 D1 后，注册/登录真实账号；**登录即拉取云端最新数据，本地任何改动立即上传，窗口聚焦/重新可见时自动同步其它设备的改动**（邮箱+密码，按账号隔离；记录级最后写入优先 + 墓碑删除 + 增量同步 + 离线写队列）。
 - 🔔 **主动还款提醒（Web Push）**：Worker 每日 09:00 扫描「3 天内到期且未还」的账单，通过浏览器推送提醒（需配置 VAPID 密钥并授予通知权限）。
+- 🗂️ **WebDAV 自建存储**：把账本存进自己的 WebDAV（Nextcloud / Alist / 群晖 等），多设备自动同步、数据不经第三方，无需部署后端（详见下文）。
 - 🏷️ **积分 / 年费追踪**：卡片可记录积分余额、年费（元）、年费日期。
 - 📥 **CSV 账单导入**：设置页按模板批量导入银行账单，自动匹配或新建卡片，导入前可预览校验。
 - 📲 **PWA 可安装**：支持作为独立应用安装到手机/桌面（含离线访问）。
@@ -32,7 +33,8 @@
 │   └── js/                  # 前端按职责拆分的经典脚本（共享全局作用域）
 │       ├── util.js          # 纯工具函数（格式化、安全清洗、CSV 解析、图表）
 │       ├── api.js           # 接口层：Auth（鉴权）+ Sync（增量同步）
-│       ├── store.js         # 数据层：本地缓存 + 云端同步 + 离线写队列
+│       ├── webdav.js        # WebDAV 客户端：GET / PUT / MKCOL + Basic 鉴权
+│       ├── store.js         # 数据层：本地缓存 + 云端 / WebDAV 同步 + 墓碑 + 离线写队列
 │       ├── modals.js        # 弹窗：信用卡 / 账单 / CSV 导入 + 持久化提交
 │       ├── ui.js            # 视图渲染与事件绑定
 │       └── app.js           # 入口：全局状态 + 路由 + 初始化 + 自动同步
@@ -107,6 +109,42 @@ npm run setup:d1          # 创建 D1 → 把绑定写入本地 wrangler.toml �
 ## 跨设备（最简单，无需云端）
 「设置 → 数据管理」可一键**导出备份 JSON**；换设备后在同页面**导入备份**即可恢复全部数据。这是最省事的跨设备方式，不依赖任何后端。导入会经过 `validateBackup` 校验与卡面 URL 白名单清洗。
 
+## WebDAV 自建存储（多设备自动同步，数据自己掌控）
+不想注册云端账号、又想要多设备自动同步时，可以把账本存进自己的 WebDAV
+（Nextcloud / Alist / 群晖 / 坚果云 等），**数据完全在自己的服务器上**，CCMS 不经过任何中转。
+
+**配置步骤**：设置 → 存储方式选「WebDAV 自建存储」→ 填入
+1. **文件地址**：一个 `.json` 文件的完整 URL，例如 `https://dav.example.com/ccms/ccms-data.json`（文件不存在会自动创建，父目录不存在会自动建）；
+2. **用户名 / 密码**（Basic 认证；坚果云需在「安全选项」里生成**应用密码**，不要用登录密码）；
+3. 点「保存并连接」——会先验证连通性，再把本地与远端数据合并。
+
+**同步机制**
+- 整本账本序列化为**一个 JSON 文件**（`{ cards, bills, tomb }`），一次 GET 拉取、一次 PUT 写回；
+- 本地与远端按 `updatedAt` 做**记录级 LWW 合并**，两台设备各自改不同卡片不会互相覆盖；
+- 删除写入**墓碑**（`tomb`，保留 180 天），避免 A 设备删掉的记录被 B 设备同步回来；
+- 合并后内容无变化时**不回写**，减少无谓请求；离线期间的改动进队列，联网后自动回放；
+- 与云端模式一致：窗口重新聚焦 / 页面重新可见时自动拉取。
+
+**必须开启 CORS**：浏览器直连 WebDAV 属于跨域请求，服务端需返回
+`Access-Control-Allow-Origin / -Headers / -Methods`（并允许 `Authorization`、`PUT`、`PROPFIND`）。
+若你的服务端无法开启 CORS（例如坚果云），可以部署一个同源的 Worker 反向代理：
+
+```js
+// 把 /dav/* 转发到你的 WebDAV，并补齐 CORS 头
+export default {
+  async fetch(req, env) {
+    if (req.method === 'OPTIONS') return new Response(null, { headers: cors() });
+    const url = new URL(req.url);
+    const target = 'https://dav.example.com' + url.pathname.replace(/^\/dav/, '');
+    const r = await fetch(target, { method: req.method, headers: req.headers, body: req.body });
+    return new Response(r.body, { status: r.status, headers: { ...Object.fromEntries(r.headers), ...cors() } });
+  },
+};
+const cors = () => ({ 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,PUT,OPTIONS' });
+```
+
+然后把文件地址填成 `https://你的域名/dav/ccms/ccms-data.json` 即可。
+
 ## PWA 安装（作为独立应用）
 本项目包含 `manifest.webmanifest` 与 `sw.js`（`public/` 下），部署后即为可安装 PWA：
 - 浏览器地址栏会出现「安装」图标；手机浏览器「添加到主屏幕」即可像原生 App 一样打开。
@@ -133,9 +171,9 @@ npm run setup:d1          # 创建 D1 → 把绑定写入本地 wrangler.toml �
 
 ## 架构说明
 
-- **前端**：零依赖原生 SPA，按职责拆分为 `util / api / store / modals / ui / app` 六个经典脚本，共享全局作用域（避免构建步骤），逻辑清晰、易于维护。
+- **前端**：零依赖原生 SPA，按职责拆分为 `util / api / webdav / store / modals / ui / app` 七个经典脚本，共享全局作用域（避免构建步骤），逻辑清晰、易于维护。
 - **后端**：单个 Cloudflare Worker 同时托管静态资源与 `/api` 接口；无状态，所有持久化在 D1。
-- **同步协议**：客户端先写本地缓存（离线可用），云端模式上传/拉取增量；记录级 LWW + 墓碑 + since 游标 + 离线写队列（网络恢复自动回放）。
+- **同步协议**：客户端先写本地缓存（离线可用），云端模式上传/拉取增量；记录级 LWW + 墓碑 + since 游标 + 离线写队列（网络恢复自动回放）。WebDAV 模式为「整文件读写 + 同一套 LWW/墓碑合并」，无变更不回写。
 
 ## Web Push（还款提醒）配置
 
