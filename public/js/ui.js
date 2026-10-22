@@ -679,7 +679,9 @@ function bindViewEvents() {
 
   // 信用卡模块分区：有效 / 已注销
   document.querySelectorAll('[data-cardtab]').forEach(b => b.onclick = () => {
-    cardPartition = b.dataset.cardtab; render();
+    cardPartition = b.dataset.cardtab;
+    try { localStorage.setItem(LS.cardTab, cardPartition); } catch (e) { /* 隐私模式忽略 */ }
+    render();
   });
   // 信用卡视图切换：列表 / 卡片 / 图片（本地记忆）
   document.querySelectorAll('[data-cardview]').forEach(b => b.onclick = () => {
@@ -689,7 +691,9 @@ function bindViewEvents() {
   });
   // 账单模块分区：月度 / 年度
   document.querySelectorAll('[data-billtab]').forEach(b => b.onclick = () => {
-    billPartition = b.dataset.billtab; render();
+    billPartition = b.dataset.billtab;
+    try { localStorage.setItem(LS.billTab, billPartition); } catch (e) { /* 隐私模式忽略 */ }
+    render();
   });
 
   const backCardsBtn = document.getElementById('backCardsBtn');
@@ -902,7 +906,7 @@ function bindViewEvents() {
     el.onclick = (e) => {
       if (e.target.closest('.cc-actions') || e.target.closest('button')) return; // 操作按钮不触发跳转
       const id = el.dataset.goCard;
-      if (view === 'dashboard') { focusCardId = id; view = 'bills'; billPartition = 'monthly'; render(); }
+      if (view === 'dashboard') { focusCardId = id; view = 'bills'; billPartition = 'monthly'; try { localStorage.setItem(LS.view, view); localStorage.setItem(LS.billTab, billPartition); } catch (e) { /* 隐私模式忽略 */ } render(); }
       else openCardModal(id);
     };
   });

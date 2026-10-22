@@ -7,10 +7,10 @@
 
 let cards = [];
 let bills = [];
-let view = 'dashboard';
+let view = localStorage.getItem(LS.view) || 'dashboard'; // 当前导航视图，刷新后保持
 let focusCardId = ''; // 概览页点击卡面后，在账单月度视图中聚焦该卡
-let billPartition = 'monthly'; // 账单模块内的分区：monthly | annual
-let cardPartition = 'active';  // 信用卡模块内的分区：active | closed
+let billPartition = localStorage.getItem(LS.billTab) || 'monthly'; // 账单模块内的分区：monthly | annual
+let cardPartition = localStorage.getItem(LS.cardTab) || 'active';  // 信用卡模块内的分区：active | closed
 let cardView = localStorage.getItem(LS.cardView) || 'card'; // 信用卡视图：card | list | image（本地记忆）
 const now = new Date();
 const sel = { year: now.getFullYear(), month: now.getMonth() + 1 };
@@ -19,6 +19,7 @@ const sel = { year: now.getFullYear(), month: now.getMonth() + 1 };
 document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => {
   view = b.dataset.view;
   if (view === 'bills') focusCardId = ''; // 通过导航进入账单时取消聚焦
+  try { localStorage.setItem(LS.view, view); } catch (e) { /* 隐私模式忽略 */ }
   render();
 });
 

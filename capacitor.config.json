@@ -1,0 +1,8 @@
+{
+  "appId": "com.ccms.app",
+  "appName": "CCMS",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https"
+  }
+}

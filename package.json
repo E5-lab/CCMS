@@ -11,6 +11,9 @@
     "setup:d1": "bash scripts/setup-d1.sh"
   },
   "devDependencies": {
-    "wrangler": "^3.90.0"
+    "wrangler": "^3.90.0",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/android": "^6.2.0"
   }
 }

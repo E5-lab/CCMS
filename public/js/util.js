@@ -9,6 +9,7 @@ const LS = {
   cards: 'ccms.cards.v1', bills: 'ccms.bills.v1', mode: 'ccms.mode',
   email: 'ccms.email', session: 'ccms.session', cardView: 'ccms.cardView',
   cursor: 'ccms.cursor.v2', // v2：旧游标被“超前时间戳”污染，升级键名强制全量重拉一次自愈
+  view: 'ccms.view', billTab: 'ccms.billTab', cardTab: 'ccms.cardTab', // 当前导航视图与子分区，刷新后保持
 };
 
 /* ------------------------------- 基础工具 ------------------------------- */

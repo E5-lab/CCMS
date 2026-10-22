@@ -6,3 +6,6 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Capacitor 安卓原生工程（由 CI 在构建时生成，无需提交）
+/android/
